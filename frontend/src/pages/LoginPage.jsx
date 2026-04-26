@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Mail, Lock, Code2 } from 'lucide-react'
+import { Mail, Lock } from 'lucide-react'
 import useAuthStore from '../features/auth/authStore'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
@@ -69,9 +69,7 @@ export default function LoginPage() {
       {/* Logo */}
       <div className="text-center mb-8">
         <Link to="/" className="inline-flex items-center gap-2 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-stellar-accent/20 border border-stellar-accent/30 flex items-center justify-center">
-            <Code2 className="w-5 h-5 text-stellar-accent" />
-          </div>
+          <img src="/logo.png" alt="StellarIDE" className="w-10 h-10 object-contain rounded-xl" />
           <span className="text-xl font-bold text-stellar-heading">
             Stellar<span className="text-stellar-accent">IDE</span>
           </span>
