@@ -215,9 +215,11 @@ pub async fn oauth_providers(State(state): State<AppState>) -> Json<OAuthProvide
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn backend_base(state: &AppState) -> String {
-    // Build the backend base URL from the port config
-    format!("http://localhost:{}", state.config.port)
+fn backend_base(_state: &AppState) -> String {
+    std::env::var("BACKEND_URL")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string())
+        .trim_end_matches('/')
+        .to_string()
 }
 
 async fn find_or_create_user(state: &AppState, email: &str, _provider: &str) -> Result<String> {
