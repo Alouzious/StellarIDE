@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Menu, X, Zap, Github, MessageSquare } from 'lucide-react'
+import { Menu, X, Zap, GithubIcon, MessageSquare } from 'lucide-react'
 import useAuthStore from '../features/auth/authStore'
 import Button from './ui/Button'
 
@@ -22,7 +22,6 @@ export default function Navbar() {
 
   const contributeUrl = 'https://github.com/Alouzious/StellarIDE'
 
-  // Replace this with your real Google Form feedback link
   const feedbackUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSfIFHRHnKjBzwwTtKZ5DjeIjPJLYHRqDgK2EVmJCy4evd2-og/viewform?usp=publish-editor'
 
   return (
@@ -38,31 +37,20 @@ export default function Navbar() {
 
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150"
-              >
+              <a key={link.label} href={link.href}
+                className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150">
                 {link.label}
               </a>
             ))}
 
-            <a
-              href={contributeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150 flex items-center gap-1.5"
-            >
-              <Github className="w-4 h-4" />
+            <a href={contributeUrl} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150 flex items-center gap-1.5">
+              <GithubIcon className="w-4 h-4" />
               Contribute
             </a>
 
-            <a
-              href={feedbackUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150 flex items-center gap-1.5"
-            >
+            <a href={feedbackUrl} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150 flex items-center gap-1.5">
               <MessageSquare className="w-4 h-4" />
               Give Feedback
             </a>
@@ -91,10 +79,8 @@ export default function Navbar() {
             )}
           </div>
 
-          <button
-            className="md:hidden text-stellar-muted hover:text-white p-2 rounded-md"
-            onClick={() => setOpen(!open)}
-          >
+          <button className="md:hidden text-stellar-muted hover:text-white p-2 rounded-md"
+            onClick={() => setOpen(!open)}>
             {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
@@ -102,34 +88,23 @@ export default function Navbar() {
         {open && (
           <div className="md:hidden py-4 border-t border-stellar-border/50 flex flex-col gap-2">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
+              <a key={link.label} href={link.href}
                 className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all"
-                onClick={() => setOpen(false)}
-              >
+                onClick={() => setOpen(false)}>
                 {link.label}
               </a>
             ))}
 
-            <a
-              href={contributeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <a href={contributeUrl} target="_blank" rel="noopener noreferrer"
               className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all flex items-center gap-2"
-              onClick={() => setOpen(false)}
-            >
-              <Github className="w-4 h-4" />
+              onClick={() => setOpen(false)}>
+              <GithubIcon className="w-4 h-4" />
               Contribute
             </a>
 
-            <a
-              href={feedbackUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <a href={feedbackUrl} target="_blank" rel="noopener noreferrer"
               className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all flex items-center gap-2"
-              onClick={() => setOpen(false)}
-            >
+              onClick={() => setOpen(false)}>
               <MessageSquare className="w-4 h-4" />
               Give Feedback
             </a>
@@ -142,15 +117,9 @@ export default function Navbar() {
                       Dashboard
                     </Button>
                   </Link>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      handleLogout()
-                      setOpen(false)
-                    }}
-                    className="justify-center"
-                  >
+                  <Button variant="ghost" size="sm"
+                    onClick={() => { handleLogout(); setOpen(false) }}
+                    className="justify-center">
                     Sign Out
                   </Button>
                 </>
