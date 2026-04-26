@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Menu, X, Zap, GithubIcon, MessageSquare } from 'lucide-react'
+import { Menu, X, Zap, GitBranch, MessageSquare } from 'lucide-react'
 import useAuthStore from '../features/auth/authStore'
 import Button from './ui/Button'
 
@@ -45,7 +45,7 @@ export default function Navbar() {
 
             <a href={contributeUrl} target="_blank" rel="noopener noreferrer"
               className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150 flex items-center gap-1.5">
-              <GithubIcon className="w-4 h-4" />
+              <GitBranch className="w-4 h-4" />
               Contribute
             </a>
 
@@ -98,7 +98,7 @@ export default function Navbar() {
             <a href={contributeUrl} target="_blank" rel="noopener noreferrer"
               className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all flex items-center gap-2"
               onClick={() => setOpen(false)}>
-              <GithubIcon className="w-4 h-4" />
+              <GitBranch className="w-4 h-4" />
               Contribute
             </a>
 
@@ -143,4 +143,3 @@ export default function Navbar() {
       </div>
     </nav>
   )
-}
