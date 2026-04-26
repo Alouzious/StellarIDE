@@ -14,3 +14,7 @@ backend/target
 .DS_Store
 .vscode/
 .idea/
+.env
+backend/.env
+frontend/.env
+.env

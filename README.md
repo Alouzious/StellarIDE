@@ -1,219 +1,285 @@
-# StellarIDE
+<div align="center">
 
-> The premium, browser-based smart contract IDE for the [Stellar](https://stellar.org) / [Soroban](https://soroban.stellar.org) ecosystem.
+# ⚡ StellarIDE
+
+**A professional, browser-native smart contract IDE for the Stellar / Soroban ecosystem.**
+
+Write · Compile · Test · Deploy — no local toolchain required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Rust](https://img.shields.io/badge/Backend-Rust%20%2B%20Axum-orange)](https://www.rust-lang.org/)
+[![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61dafb)](https://react.dev/)
+
+</div>
 
 ---
 
-## Overview
+## What is StellarIDE?
 
-**StellarIDE** is a full-stack, browser-native IDE that lets Soroban smart contract developers write, compile, test, audit, and deploy contracts without installing a local toolchain.
+StellarIDE is a full-stack, open-source browser IDE built specifically for [Soroban](https://developers.stellar.org/docs/build/smart-contracts) smart contract development on the [Stellar](https://stellar.org) network.
+
+It gives developers everything they need in one place:
+
+- **Write** Soroban contracts with Monaco Editor (the VS Code engine)
+- **Compile** to WASM directly from the browser
+- **Test** with `cargo test` — no local Rust needed
+- **Deploy** to Testnet or Mainnet with a generated or connected wallet
+- **Audit** contracts with static analysis
+- **Chat** with an AI assistant that understands Soroban
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Frontend | React 18 + Vite + Tailwind CSS |
-| Editor | Monaco Editor (VS Code engine) |
+| Editor | Monaco Editor |
 | State | Zustand |
 | Routing | React Router v7 |
-| HTTP | Axios |
-| Icons | Lucide React |
+| HTTP Client | Axios |
 | Backend | Rust + Axum |
 | Database | PostgreSQL (Neon or self-hosted) |
-| Auth | JWT + GitHub/Google OAuth |
-| AI Chat | Groq API (`llama-3.1-8b-instant` by default) |
-| ORM / Migrations | SQLx |
+| Auth | JWT + GitHub OAuth + Google OAuth |
+| AI Chat | Groq API |
+| ORM | SQLx + auto-migrations |
 | Infra | Docker + Docker Compose |
+| Stellar SDK | stellar-sdk (JS) + soroban-sdk (Rust) |
 
 ---
 
-## Folder Structure
+## Project Structure
 
-```
-IDEStellar/
-├── frontend/                # React + Vite SPA
+StellarIDE/
+├── backend/                        # Rust + Axum REST API
 │   ├── src/
-│   │   ├── components/      # Reusable UI components
-│   │   │   └── ui/          # Button, Input, Card, Modal, Toast, ChatPanel
+│   │   ├── main.rs                 # Entry point
+│   │   ├── config.rs               # Environment config
+│   │   ├── errors.rs               # Unified error types
+│   │   ├── db/mod.rs               # PgPool setup
+│   │   ├── handlers/
+│   │   │   ├── ai.rs               # AI chat + fix + explain
+│   │   │   ├── auth.rs             # Register / login / me
+│   │   │   ├── health.rs           # Health check
+│   │   │   ├── oauth.rs            # GitHub + Google OAuth
+│   │   │   └── projects.rs         # Projects + files + compile + test + deploy + audit
+│   │   ├── middleware/auth.rs      # JWT guard
+│   │   ├── models/                 # user, project, project_file
+│   │   ├── routes/mod.rs           # Router builder
+│   │   └── services/soroban.rs     # Compile / test / deploy / audit pipeline
+│   ├── migrations/                 # SQLx SQL migrations (auto-run on startup)
+│   ├── Cargo.toml
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── frontend/                       # React + Vite SPA
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   └── ui/                 # Button, Input, Card, Modal, Toast, ChatPanel
 │   │   ├── features/
-│   │   │   ├── auth/        # Auth store (Zustand) — email, GitHub, Google
-│   │   │   ├── dashboard/   # Dashboard store
-│   │   │   ├── ide/         # IDE store + chat store
-│   │   │   └── landing/     # Landing page sections incl. DevResourcesSection
-│   │   ├── layouts/         # PublicLayout, AuthLayout, ProtectedLayout
-│   │   ├── pages/           # LandingPage, LoginPage, RegisterPage, DashboardPage, IdePage, OAuthCallbackPage, NotFoundPage
-│   │   ├── hooks/           # useToast
-│   │   ├── services/        # Axios API client
-│   │   └── assets/          # Static assets
-│   ├── .env.example
+│   │   │   ├── auth/authStore.js   # Login, register, OAuth, JWT persistence
+│   │   │   ├── dashboard/          # Project management store
+│   │   │   ├── ide/
+│   │   │   │   ├── ideStore.js     # Editor, files, compile/test/deploy/audit, wallet
+│   │   │   │   └── chatStore.js    # AI chat state
+│   │   │   └── landing/            # Landing page sections
+│   │   ├── layouts/                # PublicLayout, AuthLayout, ProtectedLayout
+│   │   ├── pages/                  # Landing, Login, Register, Dashboard, IDE, OAuth, 404
+│   │   ├── hooks/useToast.js
+│   │   └── services/api.js         # Axios instance
 │   ├── Dockerfile
 │   ├── nginx.conf
-│   └── package.json
+│   └── .env.example
 │
-├── backend/                 # Rust + Axum REST API
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── config.rs
-│   │   ├── errors.rs
-│   │   ├── db/              # PgPool setup + migrations
-│   │   ├── models/          # user, project, project_file
-│   │   ├── handlers/        # health, auth, oauth, ai, projects
-│   │   ├── middleware/      # JWT auth middleware
-│   │   └── routes/          # Router builder
-│   ├── migrations/          # SQLx SQL migrations
-│   ├── .env.example
-│   └── Dockerfile
+├── sandbox/
+│   └── Dockerfile                  # Rust + wasm32 + Stellar CLI sandbox image
 │
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
-```
+
 
 ---
 
-## Quick Start (Docker)
+## Getting Started
 
 ### Prerequisites
-- [Docker](https://docs.docker.com/get-docker/) + Docker Compose v2
-- A PostgreSQL database — either local (started by Docker Compose) or [Neon](https://neon.tech) (free tier)
 
-### 1. Clone and configure
+- [Docker](https://docs.docker.com/get-docker/) + Docker Compose v2 **OR**
+- Rust (for backend) + Node.js 20+ (for frontend)
+- A PostgreSQL database — [Neon](https://neon.tech) free tier works great
+
+---
+
+### Option A — Docker (recommended)
+
+This runs everything in containers with one command.
+
+**1. Clone the repo**
 
 ```bash
-git clone https://github.com/Alouzious/IDEStellar.git
-cd IDEStellar
-cp .env.example .env
-# Edit .env — at minimum set JWT_SECRET
+git clone https://github.com/YOUR_ACTUAL_USERNAME/StellarIDE.git
+cd StellarIDE
 ```
 
-### 2. Start all services
+**2. Configure environment**
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and set at minimum:
+
+```env
+JWT_SECRET=your-random-secret-min-32-chars
+DATABASE_URL=postgresql://user:password@host/stellaride?sslmode=require
+
+# Execution mode — MUST be local for Docker
+SOROBAN_EXECUTION_MODE=local
+
+# Optional but recommended
+GROQ_API_KEY=gsk_...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
+
+**3. Start all services**
 
 ```bash
 docker compose up --build
 ```
 
-Compose starts:
-- `postgres` (local database with healthcheck)
-- `sandbox` (Rust + Soroban CLI + Scout tooling image)
-- `backend` (API + Docker socket execution)
-- `frontend` (Nginx SPA with `/api` proxy to backend)
-
 | Service | URL |
-|---------|-----|
+|---|---|
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:8080 |
 | Health check | http://localhost:8080/api/v1/health |
 
 ---
 
-## Local Development (without Docker)
+### Option B — Two Terminals (local dev)
 
-### Frontend
+This is the fastest way to develop — hot reload on both frontend and backend.
+
+**Terminal 1 — Backend**
+
+```bash
+cd backend
+cp .env.example .env
+# Edit .env — set DATABASE_URL, JWT_SECRET, SOROBAN_EXECUTION_MODE=local
+
+cargo run
+# Backend runs on http://localhost:8080
+```
+
+**Terminal 2 — Frontend**
 
 ```bash
 cd frontend
 cp .env.example .env
+# VITE_API_URL=http://localhost:8080
+
 npm install
-npm run dev          # starts on http://localhost:5173
+npm run dev
+# Frontend runs on http://localhost:5173
 ```
 
-### Backend
-
-Requires Rust + a running PostgreSQL database.
-
-```bash
-cd backend
-cp .env.example .env
-# Edit DATABASE_URL to point to your Postgres instance
-
-cargo run
-# API available at http://localhost:8080
-```
-
-### Soroban feature verification
-
-Build/Test/Deploy/Audit create a temporary project workspace and execute Soroban commands in a sandbox (`SOROBAN_EXECUTION_MODE=docker` by default). The backend executes:
-
-```bash
-docker run --rm <sandbox-image> ...
-```
-
-For Docker Compose, host `/tmp` is mounted into backend so workspace mounts resolve correctly when using `/var/run/docker.sock`.
-
-```bash
-# backend verification
-cd backend
-cargo check
-cargo test
-
-# frontend verification
-cd ../frontend
-npm run lint
-npm run build
-```
-
-Deploy supports Freighter wallet-aware flow in the IDE and backend CLI deployment when `SOROBAN_DEPLOY_SECRET_KEY` is configured.
+> **Note:** When running locally, make sure `SOROBAN_EXECUTION_MODE=local` in `backend/.env` and that you have `stellar` CLI and `rustup` with `wasm32-unknown-unknown` target installed.
 
 ---
 
-## Neon PostgreSQL Setup
+## Environment Variables
 
-1. Create a free account at [neon.tech](https://neon.tech)
-2. Create a new project and copy the **connection string**
-3. Set `DATABASE_URL` in your `.env`:
+### Root `.env` (Docker only)
 
-```
-DATABASE_URL=postgresql://user:password@ep-xxx.us-east-2.aws.neon.tech/stellaride?sslmode=require
-```
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `JWT_SECRET` | ✅ | JWT signing secret (min 32 chars) |
+| `SOROBAN_EXECUTION_MODE` | ✅ | Must be `local` for Docker |
+| `FRONTEND_URL` | — | Frontend base URL for OAuth redirects |
+| `GROQ_API_KEY` | — | Groq API key for AI chat |
+| `GITHUB_CLIENT_ID` | — | GitHub OAuth client ID |
+| `GITHUB_CLIENT_SECRET` | — | GitHub OAuth client secret |
+| `GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
+| `SOROBAN_SDK_VERSION` | — | soroban-sdk version for generated Cargo.toml |
+| `SOROBAN_NETWORK` | — | `testnet` or `mainnet` |
+| `SOROBAN_CLI_PATH` | — | stellar CLI binary name (default: `stellar`) |
 
-Migrations run automatically on startup via SQLx.
-
-> Compose defaults to local Postgres. You can still point `DATABASE_URL` to Neon; local Postgres will remain available as fallback.
+See `.env.example` and `backend/.env.example` for all options.
 
 ---
 
-## OAuth Setup (Optional)
+## Features
 
-### GitHub OAuth
+### IDE
+- Monaco Editor with Rust syntax highlighting
+- File explorer — edit `src/lib.rs`, `Cargo.toml`, and view compiled WASM
+- Output panel with real-time compile/test/deploy logs
+- AI Chat panel — powered by Groq, understands Soroban contracts
 
-1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
-2. Set **Callback URL** to: `http://localhost:8080/api/v1/auth/github/callback`
-3. Copy the **Client ID** and **Client Secret** into your `.env`:
+### Compile
+- Compiles Soroban contracts to WASM (`wasm32-unknown-unknown`)
+- WASM artifact saved to project — no recompile needed for deploy
+- Cargo.toml editable from the browser
 
-```
+### Test
+- Runs `cargo test` with `testutils` feature enabled
+- Full output streamed to the IDE output panel
+
+### Deploy
+- 3-step guided flow: Generate Wallet → Fund → Deploy
+- Generates Stellar keypair in the browser (secret key never leaves the tab)
+- One-click Testnet funding via Friendbot
+- Deploys using saved WASM — no recompile
+- Returns Contract ID with links to Stellar Expert and Stellar Lab
+
+### Auth
+- Email/password registration and login
+- GitHub OAuth
+- Google OAuth
+- JWT with configurable expiry
+
+---
+
+## OAuth Setup
+
+### GitHub
+1. Go to GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
+2. Set callback URL: `http://localhost:8080/api/v1/auth/github/callback`
+3. Add to `.env`:
+```env
 GITHUB_CLIENT_ID=your_client_id
 GITHUB_CLIENT_SECRET=your_client_secret
 ```
 
-### Google OAuth
-
-1. Go to **Google Cloud Console → APIs & Services → Credentials → Create OAuth 2.0 Client**
-2. Add **Authorised redirect URI**: `http://localhost:8080/api/v1/auth/google/callback`
-3. Copy the **Client ID** and **Client Secret** into your `.env`:
-
-```
+### Google
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
+2. Create OAuth 2.0 Client ID → set redirect URI: `http://localhost:8080/api/v1/auth/google/callback`
+3. Add to `.env`:
+```env
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
 ```
 
-> If OAuth env vars are not set, the login buttons still appear but clicking them returns a "not configured" error. This ensures the app runs gracefully without OAuth credentials.
-
 ---
 
-## AI Chat Setup (Optional)
+## AI Chat Setup
 
-StellarAI uses the [Groq API](https://console.groq.com) to power in-IDE chat assistance for Soroban contract development.
+StellarAI uses [Groq](https://console.groq.com) for fast inference.
 
-1. Create a free account at [console.groq.com](https://console.groq.com)
-2. Generate an API key
-3. Set it in your `.env`:
-
-```
+```env
 GROQ_API_KEY=gsk_...
 GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-The AI chat panel appears in the IDE top bar. If `GROQ_API_KEY` is not set, the chat panel renders but shows a graceful "not configured" message.
+If not configured, the chat panel renders but shows a graceful unavailable message.
 
 ---
 
@@ -224,92 +290,94 @@ All endpoints are prefixed with `/api/v1`.
 ### Public
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/auth/register` | Create account |
-| `POST` | `/auth/login` | Login, returns JWT |
-| `GET` | `/auth/github` | Start GitHub OAuth flow |
-| `GET` | `/auth/github/callback` | GitHub OAuth callback |
-| `GET` | `/auth/google` | Start Google OAuth flow |
-| `GET` | `/auth/google/callback` | Google OAuth callback |
-| `GET` | `/auth/oauth/providers` | Check which OAuth providers are configured |
+|---|---|---|
+| GET | `/health` | Health check |
+| POST | `/auth/register` | Create account |
+| POST | `/auth/login` | Login, returns JWT |
+| GET | `/auth/github` | Start GitHub OAuth |
+| GET | `/auth/github/callback` | GitHub OAuth callback |
+| GET | `/auth/google` | Start Google OAuth |
+| GET | `/auth/google/callback` | Google OAuth callback |
+| GET | `/auth/oauth/providers` | Which OAuth providers are configured |
 
 ### Protected (Bearer JWT required)
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/auth/me` | Current user |
-| `GET` | `/projects` | List projects |
-| `POST` | `/projects` | Create project |
-| `GET` | `/projects/:id` | Get project |
-| `PUT` | `/projects/:id` | Update project |
-| `DELETE` | `/projects/:id` | Delete project |
-| `GET` | `/projects/:id/files` | List project files |
-| `POST` | `/projects/:id/files` | Save file content |
-| `POST` | `/projects/:id/compile` | Compile project (Soroban WASM pipeline) |
-| `POST` | `/projects/:id/test` | Run tests |
-| `POST` | `/projects/:id/deploy` | Deploy contract |
-| `POST` | `/projects/:id/audit` | Run audit/security checks |
-| `POST` | `/ai/chat` | AI chat (Groq API, requires `GROQ_API_KEY`) |
+|---|---|---|
+| GET | `/auth/me` | Current user |
+| GET | `/projects` | List projects |
+| POST | `/projects` | Create project |
+| GET | `/projects/:id` | Get project |
+| PUT | `/projects/:id` | Update project |
+| DELETE | `/projects/:id` | Delete project |
+| GET | `/projects/:id/files` | List project files |
+| POST | `/projects/:id/files` | Save file |
+| POST | `/projects/:id/compile` | Compile to WASM |
+| POST | `/projects/:id/test` | Run tests |
+| POST | `/projects/:id/deploy` | Deploy contract |
+| POST | `/projects/:id/audit` | Run audit checks |
+| POST | `/ai/chat` | AI chat |
 
 ---
 
-## Environment Variables
+## Contributing
 
-See `.env.example` and `backend/.env.example` for full documentation. Key variables:
+Contributions are welcome and appreciated.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string |
-| `JWT_SECRET` | ✅ | JWT signing secret (min 32 chars) |
-| `JWT_EXPIRY_HOURS` | — | Token lifetime (default: 24) |
-| `PORT` | — | Backend listen port (default: 8080) |
-| `GITHUB_CLIENT_ID` | — | GitHub OAuth client ID |
-| `GITHUB_CLIENT_SECRET` | — | GitHub OAuth client secret |
-| `GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
-| `FRONTEND_URL` | — | Frontend base URL for OAuth redirects (default: `http://localhost:5173`) |
-| `GROQ_API_KEY` | — | Groq API key for AI chat assistant |
-| `GROQ_MODEL` | — | Groq model used by `/api/v1/ai/chat` (default: `llama-3.1-8b-instant`) |
-| `VITE_API_URL` | — | Frontend → backend URL (default in Docker Compose: `/api`) |
-| `VITE_STELLAR_NETWORK` | — | `TESTNET` or `MAINNET` |
-| `VITE_WALLET_PROVIDER` | — | Wallet provider label for IDE (`freighter`) |
-| `SOROBAN_EXECUTION_MODE` | — | `docker` or `local` command execution mode |
-| `SOROBAN_DOCKER_IMAGE` | — | Docker image used for Soroban command sandbox (default: `stellaride/soroban-sandbox:latest`) |
-| `SOROBAN_TIMEOUT_SECONDS` | — | Timeout for Soroban command execution |
-| `SOROBAN_SDK_VERSION` | — | Fallback `soroban-sdk` version for generated Cargo.toml |
-| `SOROBAN_NETWORK` | — | Soroban deploy target network |
-| `SOROBAN_RPC_URL` | — | Soroban RPC endpoint for deploy flow |
-| `SOROBAN_CLI_PATH` | — | Soroban CLI executable path |
-| `SOROBAN_DEPLOY_SECRET_KEY` | — | Optional backend signer secret for CLI deploy |
-| `SOROBAN_AUDIT_COMMAND` | — | Audit command executed in sandbox (default: `cargo scout-audit`) |
+```bash
+# 1. Fork the repo
+# 2. Create your feature branch
+git checkout -b feat/your-feature
+
+# 3. Make your changes and commit
+git commit -m "feat: add your feature"
+
+# 4. Push and open a Pull Request
+git push origin feat/your-feature
+```
+
+**Good first issues:**
+- Freighter wallet signing (replace raw secret key flow)
+- Real-time collaboration (WebSocket)
+- More contract templates
+- Audit tooling integration (Scout)
+- Test coverage improvements
+
+Please open an issue before starting large changes so we can discuss the approach.
 
 ---
 
 ## Roadmap
 
 | Feature | Status |
-|---------|--------|
+|---|---|
 | Monaco editor | ✅ |
 | JWT Auth (register/login) | ✅ |
+| GitHub OAuth | ✅ |
+| Google OAuth | ✅ |
 | Project & file management | ✅ |
-| Landing page | ✅ |
-| GitHub OAuth login | ✅ |
-| Google OAuth login | ✅ |
+| Cargo.toml editing from browser | ✅ |
+| Compile to WASM | ✅ |
+| Run tests | ✅ |
+| Deploy (generated wallet + Friendbot) | ✅ |
+| WASM saved to DB — no recompile on deploy | ✅ |
 | AI chat assistant (Groq) | ✅ |
-| Compile endpoint (sandbox pipeline) | ✅ |
-| Test endpoint (sandbox runner) | ✅ |
-| Deploy endpoint (wallet-aware + CLI hook) | ✅ |
-| Audit endpoint (static checks + tool hook) | ✅ |
-| Developer resources section | ✅ |
-| WASM compile pipeline (full) | ✅ |
-| Soroban test runner (full) | ✅ |
-| Freighter wallet integration | ✅ |
-| Stellar network deploy (fully funded wallet + signer) | 🔜 Partial/Config-dependent |
-| Real-time collaboration | 🔜 Future |
+| AI markdown rendering with syntax highlighting | ✅ |
+| Static audit checks | ✅ |
+| Freighter wallet signing | 🔜 |
+| Real-time collaboration | 🔜 |
+| Contract templates library | 🔜 |
+| Scout audit integration | 🔜 |
+| Mainnet deploy | 🔜 |
 
 ---
 
 ## License
 
 MIT © StellarIDE contributors
+
+---
+
+<div align="center">
+Built with ❤️ for the Stellar ecosystem
+</div>
