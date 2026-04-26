@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stellaride}
+      POSTGRES_USER: ${POSTGRES_USER:-stellaride_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stellaride_user} -d ${POSTGRES_DB:-stellaride}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    image: ${SOROBAN_DOCKER_IMAGE:-stellaride/soroban-sandbox:latest}
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://neondb_owner:npg_MnSP1t5uXHgA@ep-withered-forest-am26abgq-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      PORT: 8080
+      RUST_LOG: ${RUST_LOG:-backend=info,tower_http=info}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      SOROBAN_EXECUTION_MODE: ${SOROBAN_EXECUTION_MODE:-local}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
+      SOROBAN_DOCKER_IMAGE: ${SOROBAN_DOCKER_IMAGE:-stellaride/soroban-sandbox:latest}
+      SOROBAN_TIMEOUT_SECONDS: ${SOROBAN_TIMEOUT_SECONDS:-180}
+      SOROBAN_SDK_VERSION: ${SOROBAN_SDK_VERSION:-22.0.5}
+      SOROBAN_NETWORK: ${SOROBAN_NETWORK:-testnet}
+      SOROBAN_RPC_URL: ${SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      SOROBAN_CLI_PATH: ${SOROBAN_CLI_PATH:-soroban}
+      SOROBAN_DEPLOY_SECRET_KEY: ${SOROBAN_DEPLOY_SECRET_KEY:-}
+      SOROBAN_AUDIT_COMMAND: ${SOROBAN_AUDIT_COMMAND:-cargo scout-audit}
+    ports:
+      - "8080:8080"
+    volumes:
+      - /tmp:/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_APP_NAME: StellarIDE
+        VITE_STELLAR_NETWORK: ${VITE_STELLAR_NETWORK:-TESTNET}
+        VITE_WALLET_PROVIDER: ${VITE_WALLET_PROVIDER:-freighter}
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
