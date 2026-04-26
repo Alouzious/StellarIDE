@@ -51,6 +51,7 @@ It gives developers everything they need in one place:
 
 ## Project Structure
 
+```
 StellarIDE/
 ├── backend/                        # Rust + Axum REST API
 │   ├── src/
@@ -100,7 +101,7 @@ StellarIDE/
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
-
+```
 
 ---
 
@@ -121,7 +122,7 @@ This runs everything in containers with one command.
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/YOUR_ACTUAL_USERNAME/StellarIDE.git
+git clone https://github.com/YOUR_USERNAME/StellarIDE.git
 cd StellarIDE
 ```
 
