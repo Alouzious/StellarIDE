@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Code2, Menu, X, Zap } from 'lucide-react'
+import { Menu, X, Zap } from 'lucide-react'
 import useAuthStore from '../features/auth/authStore'
 import Button from './ui/Button'
 
@@ -24,49 +24,29 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-stellar-border/50 bg-stellar-bg/80 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-lg bg-stellar-accent/20 border border-stellar-accent/30 flex items-center justify-center group-hover:bg-stellar-accent/30 transition-colors">
-              <Code2 className="w-4 h-4 text-stellar-accent" />
-            </div>
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <img src="/logo.png" alt="StellarIDE" className="w-8 h-8 object-contain rounded-lg" />
             <span className="text-lg font-bold text-stellar-heading">
               Stellar<span className="text-stellar-accent">IDE</span>
             </span>
           </Link>
-
-          {/* Desktop Links */}
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150"
-              >
+              <a key={link.label} href={link.href}
+                className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all duration-150">
                 {link.label}
               </a>
             ))}
           </div>
-
-          {/* Auth Actions */}
           <div className="hidden md:flex items-center gap-3">
             {user ? (
               <>
-                <Link to="/dashboard">
-                  <Button variant="secondary" size="sm">
-                    Dashboard
-                  </Button>
-                </Link>
-                <Button variant="ghost" size="sm" onClick={handleLogout}>
-                  Sign Out
-                </Button>
+                <Link to="/dashboard"><Button variant="secondary" size="sm">Dashboard</Button></Link>
+                <Button variant="ghost" size="sm" onClick={handleLogout}>Sign Out</Button>
               </>
             ) : (
               <>
-                <Link to="/login">
-                  <Button variant="ghost" size="sm">
-                    Sign In
-                  </Button>
-                </Link>
+                <Link to="/login"><Button variant="ghost" size="sm">Sign In</Button></Link>
                 <Link to="/register">
                   <Button variant="primary" size="sm">
                     <Zap className="w-3.5 h-3.5" />
@@ -76,26 +56,16 @@ export default function Navbar() {
               </>
             )}
           </div>
-
-          {/* Mobile toggle */}
-          <button
-            className="md:hidden text-stellar-muted hover:text-white p-2 rounded-md"
-            onClick={() => setOpen(!open)}
-          >
+          <button className="md:hidden text-stellar-muted hover:text-white p-2 rounded-md" onClick={() => setOpen(!open)}>
             {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
-
-        {/* Mobile menu */}
         {open && (
           <div className="md:hidden py-4 border-t border-stellar-border/50 flex flex-col gap-2">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
+              <a key={link.label} href={link.href}
                 className="px-4 py-2 text-sm text-stellar-muted hover:text-white rounded-md hover:bg-stellar-card transition-all"
-                onClick={() => setOpen(false)}
-              >
+                onClick={() => setOpen(false)}>
                 {link.label}
               </a>
             ))}
@@ -103,9 +73,7 @@ export default function Navbar() {
               {user ? (
                 <>
                   <Link to="/dashboard" onClick={() => setOpen(false)}>
-                    <Button variant="secondary" size="sm" className="w-full justify-center">
-                      Dashboard
-                    </Button>
+                    <Button variant="secondary" size="sm" className="w-full justify-center">Dashboard</Button>
                   </Link>
                   <Button variant="ghost" size="sm" onClick={() => { handleLogout(); setOpen(false) }} className="justify-center">
                     Sign Out
@@ -114,14 +82,10 @@ export default function Navbar() {
               ) : (
                 <>
                   <Link to="/login" onClick={() => setOpen(false)}>
-                    <Button variant="ghost" size="sm" className="w-full justify-center">
-                      Sign In
-                    </Button>
+                    <Button variant="ghost" size="sm" className="w-full justify-center">Sign In</Button>
                   </Link>
                   <Link to="/register" onClick={() => setOpen(false)}>
-                    <Button variant="primary" size="sm" className="w-full justify-center">
-                      Get Started
-                    </Button>
+                    <Button variant="primary" size="sm" className="w-full justify-center">Get Started</Button>
                   </Link>
                 </>
               )}

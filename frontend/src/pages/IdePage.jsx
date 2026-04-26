@@ -553,7 +553,7 @@ export default function IdePage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <Link to="/" className="flex items-center gap-1.5 flex-shrink-0">
-            <Code2 className="w-4 h-4 text-stellar-accent" />
+            <img src="/logo.png" alt="StellarIDE" className="w-4 h-4 object-contain" />
             <span className="text-sm font-bold text-stellar-heading hidden sm:block">
               Stellar<span className="text-stellar-accent">IDE</span>
             </span>
