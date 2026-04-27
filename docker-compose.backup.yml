@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-stellaride_user}:${POSTGRES_PASSWORD:-secure_password}@postgres:5432/${POSTGRES_DB:-stellaride}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://user:password@localhost:5432/stellaride} 
       JWT_SECRET: ${JWT_SECRET:-change-me-minimum-32-chars-in-production}
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
       PORT: 8080
