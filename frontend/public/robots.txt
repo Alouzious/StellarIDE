@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+
+# Block private/auth routes from indexing
+Disallow: /dashboard
+Disallow: /ide/
+
+# Allow important pages
+Allow: /
+Allow: /login
+Allow: /register
+
+# Sitemap location
+Sitemap: https://stellar-ide-ecru.vercel.app/sitemap.xml

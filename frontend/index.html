@@ -4,8 +4,155 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Browser-native smart contract IDE for Stellar and Soroban" />
-    <title>StellarIDE — Soroban Smart Contract IDE</title>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         PRIMARY SEO
+    ═══════════════════════════════════════════════════════════ -->
+    <title>StellarIDE — Browser IDE for Soroban Smart Contracts | Stellar Blockchain</title>
+    <meta name="description" content="StellarIDE is the professional browser-native IDE for Soroban smart contract development on Stellar. Write, compile, test and deploy Soroban contracts with zero setup. Free, open source, AI-assisted." />
+    <meta name="keywords" content="Soroban IDE, Stellar IDE, Soroban smart contracts, Stellar smart contract development, browser IDE Soroban, Soroban SDK, deploy Soroban contracts, Stellar blockchain IDE, Soroban compiler online, Stellar developer tools, Soroban testnet, write Soroban contracts, Stellar Soroban tutorial, open source Soroban IDE, Soroban WASM, Stellar contract deploy, StellarIDE" />
+    <meta name="author" content="StellarIDE" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="canonical" href="https://stellar-ide-ecru.vercel.app" />
+
+    <!-- ═══════════════════════════════════════════════════════════
+         OPEN GRAPH (Facebook, LinkedIn, WhatsApp, Discord)
+    ═══════════════════════════════════════════════════════════ -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="StellarIDE" />
+    <meta property="og:title" content="StellarIDE — Browser IDE for Soroban Smart Contracts" />
+    <meta property="og:description" content="Write, compile, test and deploy Soroban smart contracts directly in your browser. No Rust install, no setup. Free, open source, AI-assisted." />
+    <meta property="og:url" content="https://stellar-ide-ecru.vercel.app" />
+    <meta property="og:image" content="https://stellar-ide-ecru.vercel.app/logo.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="StellarIDE — Browser-native Soroban Smart Contract IDE" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- ═══════════════════════════════════════════════════════════
+         TWITTER / X CARD
+    ═══════════════════════════════════════════════════════════ -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@StellarIDE" />
+    <meta name="twitter:creator" content="@StellarIDE" />
+    <meta name="twitter:title" content="StellarIDE — Browser IDE for Soroban Smart Contracts" />
+    <meta name="twitter:description" content="Write, compile, test and deploy Soroban smart contracts in your browser. No Rust install needed. Free + open source." />
+    <meta name="twitter:image" content="https://stellar-ide-ecru.vercel.app/logo.png" />
+    <meta name="twitter:image:alt" content="StellarIDE — Soroban Smart Contract IDE" />
+
+    <!-- ═══════════════════════════════════════════════════════════
+         LINKEDIN
+    ═══════════════════════════════════════════════════════════ -->
+    <meta property="og:see_also" content="https://github.com/Alouzious/StellarIDE" />
+    <meta name="linkedin:owner" content="StellarIDE" />
+
+    <!-- ═══════════════════════════════════════════════════════════
+         STRUCTURED DATA — JSON-LD (Google Rich Results)
+    ═══════════════════════════════════════════════════════════ -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "StellarIDE",
+      "operatingSystem": "Web Browser",
+      "applicationCategory": "DeveloperApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "description": "StellarIDE is a professional browser-native IDE for Soroban smart contract development on the Stellar blockchain. Write, compile, test and deploy contracts with zero local setup.",
+      "url": "https://stellar-ide-ecru.vercel.app",
+      "image": "https://stellar-ide-ecru.vercel.app/logo.png",
+      "author": {
+        "@type": "Organization",
+        "name": "StellarIDE",
+        "url": "https://stellar-ide-ecru.vercel.app"
+      },
+      "sameAs": [
+        "https://github.com/Alouzious/StellarIDE"
+      ],
+      "keywords": "Soroban, Stellar, smart contracts, IDE, browser, WASM, blockchain",
+      "featureList": [
+        "Monaco Editor with Rust syntax highlighting",
+        "Compile Soroban contracts to WASM in browser",
+        "Run cargo test without local Rust install",
+        "Deploy to Stellar Testnet with generated wallet",
+        "AI assistant for Soroban development",
+        "GitHub and Google OAuth",
+        "Free and open source"
+      ]
+    }
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         STRUCTURED DATA — WEBSITE (Sitelinks Search Box)
+    ═══════════════════════════════════════════════════════════ -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "StellarIDE",
+      "url": "https://stellar-ide-ecru.vercel.app",
+      "description": "Professional browser-native IDE for Soroban smart contract development on Stellar",
+      "publisher": {
+        "@type": "Organization",
+        "name": "StellarIDE",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://stellar-ide-ecru.vercel.app/logo.png"
+        }
+      }
+    }
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         STRUCTURED DATA — BREADCRUMB
+    ═══════════════════════════════════════════════════════════ -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "StellarIDE",
+          "item": "https://stellar-ide-ecru.vercel.app"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Soroban IDE",
+          "item": "https://stellar-ide-ecru.vercel.app/register"
+        }
+      ]
+    }
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         ADDITIONAL META
+    ═══════════════════════════════════════════════════════════ -->
+    <meta name="application-name" content="StellarIDE" />
+    <meta name="generator" content="StellarIDE v1.0" />
+    <meta name="category" content="Developer Tools, Blockchain, Smart Contracts" />
+    <meta name="classification" content="Developer Tool" />
+    <meta name="coverage" content="Worldwide" />
+    <meta name="distribution" content="Global" />
+    <meta name="rating" content="General" />
+    <meta name="revisit-after" content="7 days" />
+    <meta name="language" content="English" />
+
+    <!-- Apple / PWA -->
+    <meta name="apple-mobile-web-app-title" content="StellarIDE" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+
+    <!-- Microsoft -->
+    <meta name="msapplication-TileImage" content="/logo.png" />
+    <meta name="msapplication-TileColor" content="#0f172a" />
   </head>
   <body>
     <div id="root"></div>
