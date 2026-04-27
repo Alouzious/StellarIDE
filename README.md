@@ -1,10 +1,14 @@
 <div align="center">
 
-# ⚡ StellarIDE
+<img src="frontend/public/logo.png" alt="StellarIDE" width="80" />
+
+# StellarIDE
 
 **A professional, browser-native smart contract IDE for the Stellar / Soroban ecosystem.**
 
 Write · Compile · Test · Deploy — no local toolchain required.
+
+🌐 **[stellar-ide-ecru.vercel.app](https://stellar-ide-ecru.vercel.app)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
