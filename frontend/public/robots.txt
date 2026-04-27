@@ -11,4 +11,4 @@ Allow: /login
 Allow: /register
 
 # Sitemap location
-Sitemap: https://stellar-ide-ecru.vercel.app/sitemap.xml
+Sitemap: https://stellaride.dev/sitemap.xml
