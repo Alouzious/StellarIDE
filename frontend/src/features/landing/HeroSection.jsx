@@ -35,9 +35,7 @@ export default function HeroSection() {
               <h1 className="text-5xl lg:text-7xl font-black text-stellar-heading leading-tight tracking-tight">
                 Write Soroban
                 <br />
-                <span className="text-stellar-accent">
-                  Contracts
-                </span>
+                <span className="text-white">Contracts</span>
                 <br />
                 in the Browser
               </h1>
