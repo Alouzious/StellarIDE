@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Analytics } from '@vercel/analytics/react'
 import PublicLayout from './layouts/PublicLayout'
 import AuthLayout from './layouts/AuthLayout'
 import ProtectedLayout from './layouts/ProtectedLayout'
@@ -37,6 +38,7 @@ export default function App() {
         {/* 404 */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <Analytics />
     </BrowserRouter>
   )
 }
