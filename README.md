@@ -8,7 +8,7 @@
 
 Write · Compile · Test · Deploy — no local toolchain required.
 
-🌐 **[stellar-ide-ecru.vercel.app](https://stellar-ide-ecru.vercel.app)**
+🌐 **[stellar-ide-ecru.vercel.app](https://stellaride.dev)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
