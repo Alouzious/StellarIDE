@@ -6,7 +6,7 @@
 
 **A professional, browser-native smart contract IDE for the Stellar / Soroban ecosystem.**
 
-Write · Compile · Test · Deploy — no local toolchain required.
+Write · Compile · Test · Deploy no local toolchain required.
 
 🌐 **[https://stellaride.dev](https://stellar-ide-ecru.vercel.app)**
 
