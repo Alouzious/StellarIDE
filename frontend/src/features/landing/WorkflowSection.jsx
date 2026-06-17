@@ -1,29 +1,35 @@
-import { UserPlus, Code2, Play, Rocket } from 'lucide-react'
+import { UserPlus, Code2, Play, Rocket, Users } from 'lucide-react'
 
 const steps = [
   {
     icon: UserPlus,
     step: '01',
     title: 'Create an Account',
-    description: 'Sign up in seconds — no credit card, no CLI installation. Just your email.',
+    description: 'Sign up with email or GitHub/Google OAuth — no credit card, no CLI install.',
   },
   {
     icon: Code2,
     step: '02',
     title: 'Write Your Contract',
-    description: 'Use the Monaco editor with Rust + Soroban SDK syntax support. Templates included.',
+    description: 'Use Monaco with Rust + Soroban SDK support, or import an existing repo from GitHub.',
   },
   {
     icon: Play,
     step: '03',
     title: 'Compile & Test',
-    description: 'One-click compilation to WASM. Run unit tests directly from the browser UI.',
+    description: 'One-click WASM compilation and cargo test — full output in the IDE terminal.',
   },
   {
     icon: Rocket,
     step: '04',
     title: 'Deploy to Stellar',
-    description: 'Deploy to Testnet or Mainnet. Connect your Freighter wallet and go live.',
+    description: 'Generate a wallet in-browser, fund via Friendbot, and deploy to Testnet or Mainnet in one click.',
+  },
+  {
+    icon: Users,
+    step: '05',
+    title: 'Collaborate & Push',
+    description: 'Invite teammates for live editing, then push changes back to GitHub with a commit message.',
   },
 ]
 
@@ -43,7 +49,7 @@ export default function WorkflowSection() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           {steps.map((s, idx) => {
             const Icon = s.icon
             return (

@@ -6,14 +6,14 @@
 
 **A professional, browser-native smart contract IDE for the Stellar / Soroban ecosystem.**
 
-Write · Compile · Test · Deploy no local toolchain required.
+Write · Compile · Test · Deploy · Collaborate · Push to GitHub — no local toolchain required.
 
 🌐 **[https://stellaride.dev](https://stellar-ide-ecru.vercel.app)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Rust](https://img.shields.io/badge/Backend-Rust%20%2B%20Axum-orange)](https://www.rust-lang.org/)
-[![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61dafb)](https://react.dev/)
+[![React](https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite-61dafb)](https://react.dev/)
 
 </div>
 
@@ -28,7 +28,9 @@ It gives developers everything they need in one place:
 - **Write** Soroban contracts with Monaco Editor (the VS Code engine)
 - **Compile** to WASM directly from the browser
 - **Test** with `cargo test` — no local Rust needed
-- **Deploy** to Testnet or Mainnet with a generated or connected wallet
+- **Deploy** to Testnet or Mainnet with a generated wallet
+- **Collaborate** in real time with live cursors, Yjs CRDT sync, and invite links
+- **Sync with GitHub** — import repos, edit, and push commits via the REST API
 - **Audit** contracts with static analysis
 - **Chat** with an AI assistant that understands Soroban
 
@@ -38,14 +40,16 @@ It gives developers everything they need in one place:
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18 + Vite + Tailwind CSS |
-| Editor | Monaco Editor |
+| Frontend | React 19 + Vite + Tailwind CSS |
+| Editor | Monaco Editor + y-monaco (CRDT collab) |
+| Collaboration | Yjs + WebSockets |
 | State | Zustand |
 | Routing | React Router v7 |
 | HTTP Client | Axios |
 | Backend | Rust + Axum |
 | Database | PostgreSQL (Neon or self-hosted) |
 | Auth | JWT + GitHub OAuth + Google OAuth |
+| GitHub | REST API import / push (no git CLI) |
 | AI Chat | Groq API |
 | ORM | SQLx + auto-migrations |
 | Infra | Docker + Docker Compose |
@@ -66,13 +70,19 @@ StellarIDE/
 │   │   ├── handlers/
 │   │   │   ├── ai.rs               # AI chat + fix + explain
 │   │   │   ├── auth.rs             # Register / login / me
+│   │   │   ├── collab.rs           # WebSocket real-time collaboration
+│   │   │   ├── collaborators.rs    # Invite links + permissions
+│   │   │   ├── github.rs           # GitHub import / push API
 │   │   │   ├── health.rs           # Health check
 │   │   │   ├── oauth.rs            # GitHub + Google OAuth
 │   │   │   └── projects.rs         # Projects + files + compile + test + deploy + audit
 │   │   ├── middleware/auth.rs      # JWT guard
-│   │   ├── models/                 # user, project, project_file
+│   │   ├── models/                 # user, project, project_file, oauth_connection
 │   │   ├── routes/mod.rs           # Router builder
-│   │   └── services/soroban.rs     # Compile / test / deploy / audit pipeline
+│   │   └── services/
+│   │       ├── soroban.rs          # Compile / test / deploy / audit pipeline
+│   │       ├── github.rs           # GitHub REST client
+│   │       └── collab.rs           # In-memory collab room state
 │   ├── migrations/                 # SQLx SQL migrations (auto-run on startup)
 │   ├── Cargo.toml
 │   ├── Dockerfile
@@ -87,10 +97,13 @@ StellarIDE/
 │   │   ├── features/
 │   │   │   ├── auth/authStore.js   # Login, register, OAuth, JWT persistence
 │   │   │   ├── dashboard/          # Project management store
+│   │   │   ├── github/             # GitHub import + status store
+│   │   │   ├── collab/             # Collaboration + presence store
 │   │   │   ├── ide/
 │   │   │   │   ├── ideStore.js     # Editor, files, compile/test/deploy/audit, wallet
 │   │   │   │   └── chatStore.js    # AI chat state
 │   │   │   └── landing/            # Landing page sections
+│   │   ├── components/             # CollabEditor, ShareModal, ImportGitHubModal, etc.
 │   │   ├── layouts/                # PublicLayout, AuthLayout, ProtectedLayout
 │   │   ├── pages/                  # Landing, Login, Register, Dashboard, IDE, OAuth, 404
 │   │   ├── hooks/useToast.js
@@ -225,9 +238,17 @@ See `.env.example` and `backend/.env.example` for all options.
 
 ### IDE
 - Monaco Editor with Rust syntax highlighting
-- File explorer — edit `src/lib.rs`, `Cargo.toml`, and view compiled WASM
+- Nested file explorer — edit `src/lib.rs`, `Cargo.toml`, and view compiled WASM
 - Output panel with real-time compile/test/deploy logs
 - AI Chat panel — powered by Groq, understands Soroban contracts
+- **Live collaboration** — multi-user editing, live cursors, presence bar
+- **Share** — invite editors or viewers via secure links
+
+### GitHub Integration
+- Sign in or connect with GitHub OAuth (`repo` scope)
+- **Import from GitHub** — pick a repo and load files into the IDE
+- **Push to GitHub** — commit message + push via GitHub REST API (no git CLI)
+- Linked projects show repo/branch in the IDE toolbar
 
 ### Compile
 - Compiles Soroban contracts to WASM (`wasm32-unknown-unknown`)
@@ -247,9 +268,16 @@ See `.env.example` and `backend/.env.example` for all options.
 
 ### Auth
 - Email/password registration and login
-- GitHub OAuth
+- GitHub OAuth (login + repo access for import/push)
 - Google OAuth
 - JWT with configurable expiry
+
+### Collaboration
+- WebSocket rooms per project (`/collab/:project_id`)
+- Yjs CRDT conflict-free editing via `y-monaco`
+- Live cursors and awareness (user name + color)
+- Shared file tree sync across clients
+- Role-based access: **owner**, **editor**, **viewer** (read-only)
 
 ---
 
@@ -322,6 +350,20 @@ All endpoints are prefixed with `/api/v1`.
 | POST | `/projects/:id/deploy` | Deploy contract |
 | POST | `/projects/:id/audit` | Run audit checks |
 | POST | `/ai/chat` | AI chat |
+| GET | `/github/status` | GitHub connection status |
+| GET | `/github/repos` | List user GitHub repos |
+| POST | `/github/import` | Import repo into new project |
+| POST | `/projects/:id/github/push` | Push project files to GitHub |
+| GET | `/projects/:id/collaborators` | List collaborators |
+| POST | `/projects/:id/collaborators/invite` | Generate invite link |
+| POST | `/projects/:id/collaborators/join` | Accept invite token |
+
+### WebSocket
+
+| Path | Description |
+|---|---|
+| `GET /collab/:project_id?token=&file=` | Per-file Yjs doc + awareness sync |
+| `GET /collab/:project_id/project?token=` | File tree updates + project presence |
 
 ---
 
@@ -343,9 +385,8 @@ git push origin feat/your-feature
 
 **Good first issues:**
 - Freighter wallet signing (replace raw secret key flow)
-- Real-time collaboration (WebSocket)
-- More contract templates
-- Audit tooling integration (Scout)
+- Contract templates library
+- Scout audit integration
 - Test coverage improvements
 
 Please open an issue before starting large changes so we can discuss the approach.
@@ -367,13 +408,16 @@ Please open an issue before starting large changes so we can discuss the approac
 | Deploy (generated wallet + Friendbot) | ✅ |
 | WASM saved to DB — no recompile on deploy | ✅ |
 | AI chat assistant (Groq) | ✅ |
+| AI fix + explain errors | ✅ |
 | AI markdown rendering with syntax highlighting | ✅ |
 | Static audit checks | ✅ |
+| GitHub import & push | ✅ |
+| Real-time collaboration (WebSocket + Yjs) | ✅ |
+| Live cursors & presence | ✅ |
+| Share links (editor/viewer roles) | ✅ |
 | Freighter wallet signing | 🔜 |
-| Real-time collaboration | 🔜 |
 | Contract templates library | 🔜 |
 | Scout audit integration | 🔜 |
-| Mainnet deploy | 🔜 |
 
 ---
 

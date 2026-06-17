@@ -1,4 +1,4 @@
-import { Code2, Zap, Shield, Globe, Terminal, GitBranch, Layers, Cpu } from 'lucide-react'
+import { Code2, Zap, Shield, Globe, Terminal, GitBranch, Layers, Cpu, Users, Github, Sparkles } from 'lucide-react'
 
 const features = [
   {
@@ -18,50 +18,66 @@ const features = [
     bg: 'bg-yellow-400/10',
   },
   {
-    icon: Shield,
-    title: 'Secure by Default',
+    icon: Users,
+    title: 'Live Collaboration',
     description:
-      'JWT authentication, encrypted storage, and isolated contract execution environments.',
-    accent: 'text-green-400',
-    bg: 'bg-green-400/10',
+      'Real-time multi-user editing with live cursors, Yjs CRDT sync, shared file trees, and invite links.',
+    accent: 'text-purple-400',
+    bg: 'bg-purple-400/10',
+  },
+  {
+    icon: Github,
+    title: 'GitHub Integration',
+    description:
+      'Import repos from GitHub, edit in the IDE, and push commits back — no local git required.',
+    accent: 'text-stellar-text',
+    bg: 'bg-stellar-surface',
+  },
+  {
+    icon: Sparkles,
+    title: 'AI Assistant',
+    description:
+      'Groq-powered chat, error fix, and explain — understands your Soroban contract code.',
+    accent: 'text-pink-400',
+    bg: 'bg-pink-400/10',
   },
   {
     icon: Globe,
     title: 'Multi-Network Deploy',
     description:
-      'Deploy to Stellar Testnet or Mainnet directly from the browser with wallet integration.',
-    accent: 'text-purple-400',
-    bg: 'bg-purple-400/10',
+      'Deploy to Stellar Testnet or Mainnet with a generated in-browser wallet and Friendbot funding.',
+    accent: 'text-cyan-400',
+    bg: 'bg-cyan-400/10',
   },
   {
     icon: Terminal,
     title: 'Integrated Terminal',
     description:
       'Built-in output panel showing compilation logs, test results, and deployment status.',
-    accent: 'text-cyan-400',
-    bg: 'bg-cyan-400/10',
+    accent: 'text-teal-400',
+    bg: 'bg-teal-400/10',
   },
   {
     icon: GitBranch,
     title: 'Project Management',
     description:
-      'Organize contracts into projects with file trees, versioning, and shared workspaces.',
+      'Organize contracts into projects with nested file trees, collaborators, and role-based access.',
     accent: 'text-orange-400',
     bg: 'bg-orange-400/10',
+  },
+  {
+    icon: Shield,
+    title: 'Secure Auth',
+    description:
+      'JWT authentication plus GitHub and Google OAuth. Encrypted storage and isolated execution.',
+    accent: 'text-green-400',
+    bg: 'bg-green-400/10',
   },
   {
     icon: Layers,
     title: 'Soroban SDK Built-in',
     description:
       'Pre-configured Soroban SDK integration so you spend time writing logic, not configuring toolchains.',
-    accent: 'text-pink-400',
-    bg: 'bg-pink-400/10',
-  },
-  {
-    icon: Cpu,
-    title: 'Performant Backend',
-    description:
-      'Powered by a Rust + Axum backend for blazing-fast API responses and reliable contract execution.',
     accent: 'text-indigo-400',
     bg: 'bg-indigo-400/10',
   },
@@ -79,7 +95,7 @@ export default function FeaturesSection() {
             A complete Soroban development platform
           </h2>
           <p className="mt-4 text-lg text-stellar-muted">
-            Every tool a Soroban developer needs, integrated in a single browser-based workspace.
+            Write, compile, test, deploy, collaborate, and sync with GitHub — all in one browser workspace.
             No local install required.
           </p>
         </div>

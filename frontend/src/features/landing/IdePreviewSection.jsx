@@ -1,4 +1,4 @@
-import { FileCode, Play, CheckCircle, FolderOpen, Terminal } from 'lucide-react'
+import { FileCode, Play, CheckCircle, FolderOpen, Terminal, Users, Share2, Github } from 'lucide-react'
 
 export default function IdePreviewSection() {
   const files = [
@@ -43,6 +43,10 @@ export default function IdePreviewSection() {
               <span className="text-sm font-semibold text-stellar-heading">StellarIDE — my-token-contract</span>
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-400">
+                <Users className="w-3 h-3" />
+                <span>2 online</span>
+              </div>
               <div className="flex gap-2">
                 {['Compile', 'Test', 'Deploy', 'Audit'].map((label, i) => (
                   <div
@@ -56,7 +60,22 @@ export default function IdePreviewSection() {
                     {label}
                   </div>
                 ))}
+                <div className="px-3 py-1 rounded text-xs font-semibold bg-stellar-surface border border-stellar-border text-stellar-muted flex items-center gap-1">
+                  <Share2 className="w-3 h-3" /> Share
+                </div>
               </div>
+            </div>
+          </div>
+
+          {/* Presence bar */}
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-stellar-card/80 border-b border-stellar-border text-xs">
+            <Github className="w-3 h-3 text-stellar-muted" />
+            <span className="text-stellar-muted">my-org/token-contract · main</span>
+            <span className="text-stellar-border">·</span>
+            <span className="text-stellar-muted">Push to GitHub</span>
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-400" />
+              <span className="text-green-400">Live sync</span>
             </div>
           </div>
 

@@ -41,7 +41,7 @@ export default function HeroSection() {
               </h1>
               <p className="mt-6 text-xl text-stellar-muted max-w-lg leading-relaxed">
                 StellarIDE is the professional-grade, browser-native smart contract IDE for the Stellar ecosystem.
-                Write, test, and deploy Soroban contracts with zero setup.
+                Write, test, deploy, collaborate live, and sync with GitHub — zero setup.
               </p>
             </div>
 

@@ -1,16 +1,52 @@
-# React + Vite
+# StellarIDE Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite SPA for the StellarIDE browser IDE.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **React 19** + **Vite 8**
+- **Tailwind CSS** — Stellar-themed design system
+- **Monaco Editor** — `@monaco-editor/react`
+- **Yjs + y-monaco** — real-time collaborative editing
+- **Zustand** — auth, IDE, dashboard, GitHub, and collab state
+- **Axios** — REST API client
 
-## React Compiler
+## Key features (UI)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Feature | Where |
+|---------|--------|
+| Landing page | `src/pages/LandingPage.jsx` + `src/features/landing/` |
+| Auth (email + OAuth) | `LoginPage`, `RegisterPage`, `OAuthCallbackPage` |
+| Project dashboard | `DashboardPage` + **Import from GitHub** |
+| IDE | `IdePage` — compile, test, deploy, audit, AI chat |
+| GitHub push bar | Linked projects — commit message + push |
+| Live collaboration | `CollabEditor`, `PresenceBar`, **Share** modal |
+| Invite links | `/ide/:id?invite=token` |
 
-## Expanding the ESLint configuration
+## Development
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+cp .env.example .env
+# VITE_API_URL=http://localhost:8080
+
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+## Environment
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_URL` | Backend base URL (default `http://localhost:8080`) |
+
+WebSocket collab uses the same host with `ws://` — see `getWsBaseUrl()` in `src/services/api.js`.
+
+## Build
+
+```bash
+npm run build
+npm run preview
+```
+
+Production builds are served via `nginx.conf` in Docker (port 3000).
