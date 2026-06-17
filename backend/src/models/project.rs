@@ -8,6 +8,9 @@ pub struct Project {
     pub user_id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    pub github_owner: Option<String>,
+    pub github_repo: Option<String>,
+    pub github_branch: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

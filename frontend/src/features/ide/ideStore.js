@@ -135,11 +135,56 @@ const useIdeStore = create((set, get) => ({
         content: editorContent,
         language,
       })
-      set({ isSaving: false })
+      set((state) => ({
+        isSaving: false,
+        files: state.files.map((f) =>
+          f.file_path === filePath ? { ...f, content: editorContent } : f
+        ),
+      }))
       return { success: true }
     } catch {
       set({ isSaving: false })
       return { success: false }
+    }
+  },
+
+  saveAllFiles: async (projectId) => {
+    const { files, activeFile, editorContent } = get()
+    if (!projectId) return { success: false }
+    set({ isSaving: true })
+    try {
+      const toSave = files.map((f) =>
+        f.file_path === activeFile?.file_path ? { ...f, content: editorContent } : f
+      )
+      for (const f of toSave) {
+        if (f.language === 'wasm' || f.file_path?.endsWith('.wasm')) continue
+        const language = f.file_path?.endsWith('.toml') ? 'toml' : f.language || 'rust'
+        await api.post(`/projects/${projectId}/files`, {
+          file_path: f.file_path,
+          content: f.content,
+          language,
+        })
+      }
+      set({ files: toSave, isSaving: false })
+      return { success: true }
+    } catch {
+      set({ isSaving: false })
+      return { success: false }
+    }
+  },
+
+  pushToGitHub: async (projectId, message) => {
+    const { appendLog } = get()
+    appendLog(`$ git push — "${message}"`, 'info')
+    try {
+      const { data } = await api.post(`/projects/${projectId}/github/push`, { message })
+      appendLog(`✔  Pushed ${data.files_pushed} file(s) to GitHub`, 'success')
+      appendLog(`   Commit: ${data.commit_sha?.slice(0, 8)}`, 'info')
+      return { success: true, data }
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Push to GitHub failed'
+      appendLog(`✖  ${msg}`, 'error')
+      return { success: false, error: msg }
     }
   },
 

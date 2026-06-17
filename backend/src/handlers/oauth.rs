@@ -1,42 +1,43 @@
 use axum::{
     extract::{Query, State},
     response::Redirect,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::{
     errors::{AppError, Result},
     handlers::auth::create_token,
-    models::user::User,
+    middleware::auth::AuthUser,
+    models::oauth_connection::GitHubStatusResponse,
+    services::oauth_github::{
+        backend_base, decode_oauth_state, encode_oauth_state, exchange_github_code,
+        find_or_create_user_by_email, github_authorize_url, github_primary_email,
+        upsert_github_connection,
+    },
     AppState,
 };
-
-// ── Shared query params for OAuth callbacks ───────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct OAuthCallback {
     pub code: Option<String>,
     pub error: Option<String>,
+    pub state: Option<String>,
 }
 
-// ── GitHub ────────────────────────────────────────────────────────────────────
-
 pub async fn github_login(State(state): State<AppState>) -> Result<Redirect> {
-    let client_id = state
-        .config
-        .github_client_id
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("GitHub OAuth is not configured".into()))?;
-
-    let redirect_uri = format!("{}/api/v1/auth/github/callback", backend_base(&state));
-    let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=user:email",
-        client_id,
-        urlencoding::encode(&redirect_uri)
-    );
+    let oauth_state = encode_oauth_state(&state.config.jwt_secret, "login", None)?;
+    let url = github_authorize_url(&state, &oauth_state)?;
     Ok(Redirect::temporary(&url))
+}
+
+pub async fn github_connect(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>> {
+    let oauth_state = encode_oauth_state(&state.config.jwt_secret, "connect", Some(auth.id))?;
+    let url = github_authorize_url(&state, &oauth_state)?;
+    Ok(Json(serde_json::json!({ "url": url })))
 }
 
 pub async fn github_callback(
@@ -44,7 +45,11 @@ pub async fn github_callback(
     Query(params): Query<OAuthCallback>,
 ) -> Result<Redirect> {
     if let Some(err) = &params.error {
-        let url = format!("{}/login?error={}", state.config.frontend_url, urlencoding::encode(err));
+        let url = format!(
+            "{}/login?error={}",
+            state.config.frontend_url,
+            urlencoding::encode(err)
+        );
         return Ok(Redirect::temporary(&url));
     }
 
@@ -53,65 +58,77 @@ pub async fn github_callback(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Missing OAuth code".into()))?;
 
-    let client_id = state
-        .config
-        .github_client_id
+    let (access_token, scopes) = exchange_github_code(&state, code).await?;
+    let scopes_str = scopes.as_deref();
+
+    let intent = params
+        .state
         .as_deref()
-        .ok_or_else(|| AppError::BadRequest("GitHub OAuth is not configured".into()))?;
+        .map(|s| decode_oauth_state(&state.config.jwt_secret, s))
+        .transpose()?
+        .map(|c| c.intent)
+        .unwrap_or_else(|| "login".to_string());
 
-    let client_secret = state
-        .config
-        .github_client_secret
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("GitHub OAuth is not configured".into()))?;
+    if intent == "connect" {
+        let claims = decode_oauth_state(
+            &state.config.jwt_secret,
+            params.state.as_deref().unwrap_or(""),
+        )?;
+        let user_id = claims
+            .sub
+            .ok_or_else(|| AppError::BadRequest("Missing user in OAuth state".into()))?;
 
-    // Exchange code for access token
-    let http = reqwest::Client::new();
-    let token_resp = http
-        .post("https://github.com/login/oauth/access_token")
-        .header("Accept", "application/json")
-        .json(&serde_json::json!({
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code
-        }))
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+        upsert_github_connection(&state, user_id, &access_token, scopes_str).await?;
 
-    let access_token = token_resp["access_token"]
-        .as_str()
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("No access_token in GitHub response")))?;
+        let url = format!(
+            "{}/dashboard?github=connected",
+            state.config.frontend_url
+        );
+        return Ok(Redirect::temporary(&url));
+    }
 
-    // Get user email from GitHub API
-    let emails_resp = http
-        .get("https://api.github.com/user/emails")
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("User-Agent", "StellarIDE")
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?
-        .json::<Vec<serde_json::Value>>()
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+    let email = github_primary_email(&state, &access_token).await?;
+    let user = find_or_create_user_by_email(&state, &email).await?;
+    upsert_github_connection(&state, user.id, &access_token, scopes_str).await?;
 
-    let email = emails_resp
-        .iter()
-        .find(|e| e["primary"].as_bool().unwrap_or(false))
-        .and_then(|e| e["email"].as_str())
-        .or_else(|| emails_resp.first().and_then(|e| e["email"].as_str()))
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("No email returned from GitHub")))?
-        .to_string();
+    let jwt = create_token(
+        user.id,
+        &user.email,
+        &state.config.jwt_secret,
+        state.config.jwt_expiry_hours,
+    )
+    .map_err(|e| AppError::Internal(e))?;
 
-    let jwt = find_or_create_user(&state, &email, "github").await?;
     let url = format!("{}/auth/callback?token={}", state.config.frontend_url, jwt);
     Ok(Redirect::temporary(&url))
 }
 
-// ── Google ────────────────────────────────────────────────────────────────────
+pub async fn github_status(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> Result<Json<GitHubStatusResponse>> {
+    let conn = sqlx::query_as::<_, crate::models::oauth_connection::OAuthConnection>(
+        "SELECT * FROM oauth_connections WHERE user_id = $1 AND provider = 'github'",
+    )
+    .bind(auth.id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(Json(match conn {
+        Some(c) => GitHubStatusResponse {
+            connected: true,
+            github_login: c.provider_login,
+            scopes: c.scopes,
+        },
+        None => GitHubStatusResponse {
+            connected: false,
+            github_login: None,
+            scopes: None,
+        },
+    }))
+}
+
+// ── Google (unchanged flow) ───────────────────────────────────────────────────
 
 pub async fn google_login(State(state): State<AppState>) -> Result<Redirect> {
     let client_id = state
@@ -120,7 +137,7 @@ pub async fn google_login(State(state): State<AppState>) -> Result<Redirect> {
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Google OAuth is not configured".into()))?;
 
-    let redirect_uri = format!("{}/api/v1/auth/google/callback", backend_base(&state));
+    let redirect_uri = format!("{}/api/v1/auth/google/callback", backend_base());
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&access_type=offline",
         client_id,
@@ -134,7 +151,11 @@ pub async fn google_callback(
     Query(params): Query<OAuthCallback>,
 ) -> Result<Redirect> {
     if let Some(err) = &params.error {
-        let url = format!("{}/login?error={}", state.config.frontend_url, urlencoding::encode(err));
+        let url = format!(
+            "{}/login?error={}",
+            state.config.frontend_url,
+            urlencoding::encode(err)
+        );
         return Ok(Redirect::temporary(&url));
     }
 
@@ -155,7 +176,7 @@ pub async fn google_callback(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Google OAuth is not configured".into()))?;
 
-    let redirect_uri = format!("{}/api/v1/auth/google/callback", backend_base(&state));
+    let redirect_uri = format!("{}/api/v1/auth/google/callback", backend_base());
 
     let http = reqwest::Client::new();
     let token_resp = http
@@ -193,12 +214,18 @@ pub async fn google_callback(
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("No email returned from Google")))?
         .to_string();
 
-    let jwt = find_or_create_user(&state, &email, "google").await?;
+    let user = find_or_create_user_by_email(&state, &email).await?;
+    let jwt = create_token(
+        user.id,
+        &user.email,
+        &state.config.jwt_secret,
+        state.config.jwt_expiry_hours,
+    )
+    .map_err(|e| AppError::Internal(e))?;
+
     let url = format!("{}/auth/callback?token={}", state.config.frontend_url, jwt);
     Ok(Redirect::temporary(&url))
 }
-
-// ── OAuth status endpoint ─────────────────────────────────────────────────────
 
 #[derive(Serialize)]
 pub struct OAuthProvidersResponse {
@@ -211,52 +238,4 @@ pub async fn oauth_providers(State(state): State<AppState>) -> Json<OAuthProvide
         github: state.config.github_client_id.is_some(),
         google: state.config.google_client_id.is_some(),
     })
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn backend_base(_state: &AppState) -> String {
-    std::env::var("BACKEND_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-async fn find_or_create_user(state: &AppState, email: &str, _provider: &str) -> Result<String> {
-    // Try to find existing user
-    let existing = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
-        .bind(email)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
-
-    let user = if let Some(u) = existing {
-        u
-    } else {
-        // Create user with a non-password-based sentinel that bcrypt will never match.
-        // The "OAUTH_NO_PASSWORD:" prefix combined with a UUID ensures this value cannot
-        // be reproduced by any password-based login attempt.
-        let placeholder_hash = format!("OAUTH_NO_PASSWORD:{}", Uuid::new_v4());
-        sqlx::query_as::<_, User>(
-            r#"INSERT INTO users (id, email, password_hash, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING *"#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(email)
-        .bind(&placeholder_hash)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?
-    };
-
-    let token = create_token(
-        user.id,
-        &user.email,
-        &state.config.jwt_secret,
-        state.config.jwt_expiry_hours,
-    )
-    .map_err(|e| AppError::Internal(e))?;
-
-    Ok(token)
 }

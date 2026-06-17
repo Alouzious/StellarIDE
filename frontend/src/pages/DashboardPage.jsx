@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Plus, Code2, Trash2, Edit3, ExternalLink, FolderOpen,
-  Clock, LogOut, Search, MoreVertical
+  Clock, LogOut, Search, MoreVertical, Github
 } from 'lucide-react'
 import useAuthStore from '../features/auth/authStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
 import Button from '../components/ui/Button'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
+import ImportGitHubModal from '../components/ImportGitHubModal'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -89,12 +90,18 @@ export default function DashboardPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [githubOpen, setGithubOpen] = useState(false)
   const [formData, setFormData] = useState({ name: '', description: '' })
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     fetchProjects()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('github') === 'connected') {
+      toast.success('GitHub account connected!')
+      window.history.replaceState({}, '', '/dashboard')
+    }
   }, [fetchProjects])
 
   const filtered = projects.filter((p) =>
@@ -173,10 +180,16 @@ export default function DashboardPage() {
             </h1>
             <p className="text-sm text-stellar-muted mt-1">Manage your Soroban contract projects</p>
           </div>
-          <Button onClick={() => { setFormData({ name: '', description: '' }); setFormError(''); setCreateOpen(true) }}>
-            <Plus className="w-4 h-4" />
-            New Project
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button variant="secondary" onClick={() => setGithubOpen(true)}>
+              <Github className="w-4 h-4" />
+              Import from GitHub
+            </Button>
+            <Button onClick={() => { setFormData({ name: '', description: '' }); setFormError(''); setCreateOpen(true) }}>
+              <Plus className="w-4 h-4" />
+              New Project
+            </Button>
+          </div>
         </div>
 
         {/* Search */}
@@ -305,6 +318,12 @@ export default function DashboardPage() {
       </Modal>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      <ImportGitHubModal
+        open={githubOpen}
+        onClose={() => setGithubOpen(false)}
+        onImported={() => fetchProjects()}
+      />
     </div>
   )
 }

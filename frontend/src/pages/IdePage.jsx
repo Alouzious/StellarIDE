@@ -7,14 +7,17 @@ import {
   Wallet, Users, ArrowLeft, Loader2, CheckCircle, XCircle,
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
-  Globe, Zap, MessageCircle, FlaskConical, Search, Server,
+  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Github, Upload,
 } from 'lucide-react'
 import useIdeStore from '../features/ide/ideStore'
 import useChatStore from '../features/ide/chatStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
 import useAuthStore from '../features/auth/authStore'
+import useGitHubStore from '../features/github/githubStore'
 import Button from '../components/ui/Button'
 import ChatPanel from '../components/ui/ChatPanel'
+import NestedFileTree from '../components/NestedFileTree'
+import api from '../services/api'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -90,42 +93,7 @@ function ResourcesMenu() {
 }
 
 function FileTree({ files, activeFile, onSelect }) {
-  const [expanded, setExpanded] = useState(true)
-  const displayFiles = files.length > 0 ? files : [{ file_path: 'src/lib.rs', content: '' }]
-
-  const getFileIcon = (filePath) => {
-    if (filePath.endsWith('.toml')) return '⚙'
-    if (filePath.endsWith('.wasm')) return '📦'
-    return null
-  }
-
-  return (
-    <div className="h-full overflow-auto p-2">
-      <div className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer text-stellar-muted hover:text-stellar-text rounded group"
-        onClick={() => setExpanded(!expanded)}>
-        {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        <FolderOpen className="w-3.5 h-3.5 text-stellar-accent" />
-        <span className="text-xs font-semibold">src</span>
-      </div>
-      {expanded && (
-        <div className="ml-4">
-          {displayFiles.map((f, idx) => (
-            <div key={f.id || `${f.file_path}-${idx}`} onClick={() => onSelect(f)}
-              className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs font-mono transition-colors ${
-                activeFile?.file_path === f.file_path
-                  ? 'bg-stellar-accent/15 text-stellar-accent border border-stellar-accent/20'
-                  : 'text-stellar-muted hover:text-stellar-text hover:bg-stellar-surface'
-              }`}>
-              {getFileIcon(f.file_path)
-                ? <span className="text-xs flex-shrink-0">{getFileIcon(f.file_path)}</span>
-                : <FileCode className="w-3.5 h-3.5 flex-shrink-0" />}
-              <span className="truncate">{f.file_path.split('/').pop()}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+  return <NestedFileTree files={files} activeFile={activeFile} onSelect={onSelect} />
 }
 
 function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning }) {
@@ -432,6 +400,62 @@ function DeployPanel({ onClose, projectId }) {
   )
 }
 
+function GitHubPushBar({ project, projectId, onPush, pushing }) {
+  const [message, setMessage] = useState('')
+  const { connectGitHub, fetchStatus, status } = useGitHubStore()
+
+  useEffect(() => {
+    fetchStatus()
+  }, [fetchStatus])
+
+  if (!project?.github_owner || !project?.github_repo) return null
+
+  const repoLabel = `${project.github_owner}/${project.github_repo}`
+
+  const handlePush = async () => {
+    if (!message.trim()) return
+    await onPush(message.trim())
+    setMessage('')
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stellar-border bg-stellar-card/80 flex-shrink-0 flex-wrap">
+      <Github className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
+      <span className="text-xs text-stellar-muted truncate max-w-[140px]" title={repoLabel}>
+        {repoLabel}
+      </span>
+      <span className="text-xs text-stellar-border">·</span>
+      <span className="text-xs text-stellar-muted">{project.github_branch || 'main'}</span>
+      {!status?.connected && (
+        <button
+          type="button"
+          onClick={connectGitHub}
+          className="text-xs text-stellar-accent hover:underline ml-1"
+        >
+          Connect GitHub
+        </button>
+      )}
+      <input
+        type="text"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="Commit message..."
+        className="flex-1 min-w-[120px] bg-stellar-surface border border-stellar-border text-stellar-text text-xs rounded px-2 py-1 focus:outline-none focus:border-stellar-accent/50"
+        onKeyDown={(e) => e.key === 'Enter' && handlePush()}
+      />
+      <button
+        type="button"
+        onClick={handlePush}
+        disabled={pushing || !message.trim() || !status?.connected}
+        className="flex items-center gap-1 px-2.5 py-1 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded text-xs font-semibold transition-all disabled:opacity-50"
+      >
+        {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+        Push
+      </button>
+    </div>
+  )
+}
+
 export default function IdePage() {
   const { id: projectId } = useParams()
   const navigate = useNavigate()
@@ -440,8 +464,9 @@ export default function IdePage() {
   const {
     project, files, activeFile, editorContent, outputLog,
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
-    setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
+    setProject, loadFiles, setActiveFile, setEditorContent, saveFile, saveAllFiles,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
+    pushToGitHub,
   } = useIdeStore()
   const { isOpen: chatOpen, toggleChat, closeChat } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
@@ -450,6 +475,7 @@ export default function IdePage() {
   const [deployPanelOpen, setDeployPanelOpen] = useState(false)
   const [terminalHeight, setTerminalHeight] = useState(176)
   const [chatWidth, setChatWidth] = useState(320)
+  const [pushing, setPushing] = useState(false)
   const dragRef = useRef(null)
 
   const startDrag = (e) => {
@@ -494,8 +520,11 @@ export default function IdePage() {
   }, [projects, projectId, setProject])
 
   useEffect(() => {
-    if (projectId) loadFiles(projectId)
-  }, [projectId, loadFiles])
+    if (projectId) {
+      loadFiles(projectId)
+      api.get(`/projects/${projectId}`).then(({ data }) => setProject(data)).catch(() => {})
+    }
+  }, [projectId, loadFiles, setProject])
 
   const handleSave = async () => {
     const r = await saveFile(projectId)
@@ -527,6 +556,15 @@ export default function IdePage() {
     if (chatOpen) closeChat()
   }
 
+  const handlePushGitHub = async (message) => {
+    setPushing(true)
+    setBottomPanelOpen(true)
+    clearLog()
+    await saveAllFiles(projectId)
+    await pushToGitHub(projectId, message)
+    setPushing(false)
+  }
+
   const handleLogout = () => { logout(); navigate('/') }
 
   const actionIcon = (status, IdleIcon) => {
@@ -540,8 +578,11 @@ export default function IdePage() {
   const editorLanguage = (() => {
     const fp = activeFile?.file_path || 'src/lib.rs'
     if (fp.endsWith('.toml')) return 'ini'
+    if (fp.endsWith('.md')) return 'markdown'
+    if (fp.endsWith('.json')) return 'json'
     if (fp.endsWith('.wasm')) return 'plaintext'
-    return 'rust'
+    if (fp.endsWith('.rs')) return 'rust'
+    return 'plaintext'
   })()
 
   return (
@@ -632,6 +673,12 @@ export default function IdePage() {
 
         {/* Editor + Output */}
         <div className="flex-1 flex flex-col min-w-0">
+          <GitHubPushBar
+            project={project}
+            projectId={projectId}
+            onPush={handlePushGitHub}
+            pushing={pushing}
+          />
           <div className="flex items-center border-b border-stellar-border bg-stellar-card h-8 flex-shrink-0">
             {activeFile && (
               <div className="flex items-center gap-2 px-4 h-full border-r border-stellar-border bg-stellar-surface text-xs font-mono text-stellar-text">

@@ -9,6 +9,7 @@ pub struct ProjectFile {
     pub file_path: String,
     pub content: String,
     pub language: String,
+    pub github_sha: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

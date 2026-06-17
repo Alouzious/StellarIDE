@@ -39,6 +39,26 @@ pub fn build_router(state: AppState) -> Router {
     // Protected routes (require JWT)
     let protected = Router::new()
         .route("/auth/me", get(handlers::auth::me))
+        .route("/github/status", get(handlers::oauth::github_status))
+        .route("/github/connect-url", get(handlers::oauth::github_connect))
+        .route("/github/repos", get(handlers::github::list_repos))
+        .route(
+            "/github/repos/:owner/:repo/tree",
+            get(handlers::github::get_file_tree),
+        )
+        .route(
+            "/github/repos/:owner/:repo/content",
+            get(handlers::github::get_file_content),
+        )
+        .route("/github/import", post(handlers::github::import_repo))
+        .route(
+            "/github/repos/:owner/:repo/push",
+            post(handlers::github::push_file),
+        )
+        .route(
+            "/projects/:id/github/push",
+            post(handlers::github::push_project),
+        )
         .route("/projects", get(handlers::projects::list_projects))
         .route("/projects", post(handlers::projects::create_project))
         .route("/projects/:id", get(handlers::projects::get_project))
