@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import Editor from '@monaco-editor/react'
 import { MonacoBinding } from 'y-monaco'
 import { createCollabSession } from '../features/collab/collabProvider'
-import { getWsBaseUrl } from '../../services/api'
+import { getWsBaseUrl } from '../services/api'
 
 export default function CollabEditor({
   projectId,
