@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Plus, Code2, Trash2, Edit3, ExternalLink, FolderOpen,
-  Clock, LogOut, Search, MoreVertical, Github
+  Clock, LogOut, Search, MoreVertical
 } from 'lucide-react'
+import GitHubIcon from '../components/icons/GitHubIcon'
 import useAuthStore from '../features/auth/authStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
 import Button from '../components/ui/Button'
@@ -182,7 +183,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button variant="secondary" onClick={() => setGithubOpen(true)}>
-              <Github className="w-4 h-4" />
+              <GitHubIcon className="w-4 h-4" />
               Import from GitHub
             </Button>
             <Button onClick={() => { setFormData({ name: '', description: '' }); setFormError(''); setCreateOpen(true) }}>

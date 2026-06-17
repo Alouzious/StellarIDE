@@ -1,4 +1,5 @@
-import { FileCode, Play, CheckCircle, FolderOpen, Terminal, Users, Share2, Github } from 'lucide-react'
+import { FileCode, Play, CheckCircle, FolderOpen, Terminal, Users, Share2 } from 'lucide-react'
+import GitHubIcon from '../../components/icons/GitHubIcon'
 
 export default function IdePreviewSection() {
   const files = [
@@ -69,7 +70,7 @@ export default function IdePreviewSection() {
 
           {/* Presence bar */}
           <div className="flex items-center gap-2 px-4 py-1.5 bg-stellar-card/80 border-b border-stellar-border text-xs">
-            <Github className="w-3 h-3 text-stellar-muted" />
+            <GitHubIcon className="w-3 h-3 text-stellar-muted" />
             <span className="text-stellar-muted">my-org/token-contract · main</span>
             <span className="text-stellar-border">·</span>
             <span className="text-stellar-muted">Push to GitHub</span>

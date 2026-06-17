@@ -7,8 +7,9 @@ import {
   Wallet, Users, ArrowLeft, Loader2, CheckCircle, XCircle,
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
-  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Github, Upload, Share2,
+  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Share2,
 } from 'lucide-react'
+import GitHubIcon from '../components/icons/GitHubIcon'
 import useIdeStore from '../features/ide/ideStore'
 import useChatStore from '../features/ide/chatStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
@@ -44,7 +45,7 @@ const DEV_RESOURCES = [
 const RESOURCE_ICONS = {
   Globe, BookOpen, Zap, MessageCircle, HelpCircle,
   FlaskConical, Search, Server, Code2, Package,
-  Terminal2: Terminal, Github: Code2,
+  Terminal2: Terminal, Github: GitHubIcon,
 }
 
 function ResourcesMenu() {
@@ -434,7 +435,7 @@ function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stellar-border bg-stellar-card/80 flex-shrink-0 flex-wrap">
-      <Github className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
+      <GitHubIcon className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
       <span className="text-xs text-stellar-muted truncate max-w-[140px]" title={repoLabel}>
         {repoLabel}
       </span>

@@ -1,4 +1,5 @@
-import { Code2, Zap, Shield, Globe, Terminal, GitBranch, Layers, Cpu, Users, Github, Sparkles } from 'lucide-react'
+import { Code2, Zap, Shield, Globe, Terminal, GitBranch, Layers, Cpu, Users, Sparkles } from 'lucide-react'
+import GitHubIcon from '../../components/icons/GitHubIcon'
 
 const features = [
   {
@@ -26,7 +27,7 @@ const features = [
     bg: 'bg-purple-400/10',
   },
   {
-    icon: Github,
+    icon: GitHubIcon,
     title: 'GitHub Integration',
     description:
       'Import repos from GitHub, edit in the IDE, and push commits back — no local git required.',
