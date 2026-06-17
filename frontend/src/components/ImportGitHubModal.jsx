@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Github, Loader2, Search, ExternalLink, AlertCircle } from 'lucide-react'
 import useGitHubStore from '../features/github/githubStore'
-import Button from '../ui/Button'
-import Modal from '../ui/Modal'
-import Input from '../ui/Input'
+import Button from './ui/Button'
+import Modal from './ui/Modal'
+import Input from './ui/Input'
 
 export default function ImportGitHubModal({ open, onClose, onImported }) {
   const navigate = useNavigate()

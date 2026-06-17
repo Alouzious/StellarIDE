@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, Circle } from 'lucide-react'
-import Button from '../ui/Button'
+import Button from './ui/Button'
 
 const CODE_LINES = [
   { n: 1, code: '#![no_std]', cls: 'text-stellar-accent' },
