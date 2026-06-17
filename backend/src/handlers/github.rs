@@ -16,7 +16,9 @@ use crate::{
         project_file::ProjectFile,
     },
     services::github::{
-        language_for_path, should_import_path, GitHubClient, PushFileEntry,
+        analyze_repo_folders, file_in_subfolder, github_path_from_local, language_for_path,
+        normalize_subfolder, parse_github_repo_url, should_import_path, strip_subfolder_prefix,
+        GitHubClient, PushFileEntry,
     },
     AppState,
 };
@@ -120,12 +122,37 @@ pub async fn get_file_content(
     })))
 }
 
+pub async fn list_repo_folders(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    Query(q): Query<RepoBranchQuery>,
+) -> Result<Json<Value>> {
+    let client = github_client_for_user(&state, auth.id).await?;
+    let repo_info = client.get_repo(&owner, &repo).await?;
+    let branch = q
+        .branch
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        .unwrap_or(&repo_info.default_branch);
+    let tree = client.get_file_tree(&owner, &repo, branch).await?;
+    let (has_root_cargo, is_flat, folders) = analyze_repo_folders(&tree);
+
+    Ok(Json(json!({
+        "branch": branch,
+        "has_root_cargo": has_root_cargo,
+        "is_flat": is_flat,
+        "folders": folders,
+    })))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ImportRepoRequest {
     pub owner: String,
     pub repo: String,
     pub branch: Option<String>,
     pub project_name: Option<String>,
+    pub subfolder: Option<String>,
 }
 
 pub async fn import_repo(
@@ -145,6 +172,8 @@ pub async fn import_repo(
         .get_file_tree(&body.owner, &body.repo, branch)
         .await?;
 
+    let subfolder = body.subfolder.as_deref().and_then(normalize_subfolder);
+
     let project_name = body
         .project_name
         .as_deref()
@@ -152,8 +181,8 @@ pub async fn import_repo(
         .unwrap_or(&body.repo);
 
     let project = sqlx::query_as::<_, Project>(
-        r#"INSERT INTO projects (id, user_id, name, description, github_owner, github_repo, github_branch, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        r#"INSERT INTO projects (id, user_id, name, description, github_owner, github_repo, github_branch, github_subfolder, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
@@ -163,6 +192,7 @@ pub async fn import_repo(
     .bind(&body.owner)
     .bind(&body.repo)
     .bind(branch)
+    .bind(&subfolder)
     .fetch_one(&state.db)
     .await?;
 
@@ -171,6 +201,18 @@ pub async fn import_repo(
         if entry.entry_type != "blob" || !should_import_path(&entry.path, entry.size) {
             continue;
         }
+
+        let store_path = if let Some(ref sub) = subfolder {
+            if !file_in_subfolder(&entry.path, sub) {
+                continue;
+            }
+            match strip_subfolder_prefix(&entry.path, sub) {
+                Some(p) if !p.is_empty() => p,
+                _ => continue,
+            }
+        } else {
+            entry.path.clone()
+        };
 
         let content = match client
             .get_blob_text(&body.owner, &body.repo, &entry.sha)
@@ -189,9 +231,9 @@ pub async fn import_repo(
         )
         .bind(Uuid::new_v4())
         .bind(project.id)
-        .bind(&entry.path)
+        .bind(&store_path)
         .bind(&content)
-        .bind(language_for_path(&entry.path))
+        .bind(language_for_path(&store_path))
         .bind(&entry.sha)
         .execute(&state.db)
         .await?;
@@ -199,10 +241,21 @@ pub async fn import_repo(
         imported += 1;
     }
 
+    if imported == 0 {
+        let _ = sqlx::query("DELETE FROM projects WHERE id = $1")
+            .bind(project.id)
+            .execute(&state.db)
+            .await;
+        return Err(AppError::BadRequest(
+            "No importable files found in the selected folder. Pick a folder that contains your Soroban contract (Cargo.toml + src/).".into(),
+        ));
+    }
+
     Ok(Json(json!({
         "project": project,
         "files_imported": imported,
         "branch": branch,
+        "subfolder": subfolder,
     })))
 }
 
@@ -304,7 +357,7 @@ pub async fn push_project(
                 && f.language != "wasm"
         })
         .map(|f| PushFileEntry {
-            path: f.file_path.clone(),
+            path: github_path_from_local(&f.file_path, &project.github_subfolder),
             content: f.content.clone(),
         })
         .collect();
@@ -324,14 +377,20 @@ pub async fn push_project(
             if entry.entry_type != "blob" {
                 continue;
             }
-            let _ = sqlx::query(
-                "UPDATE project_files SET github_sha = $1, updated_at = NOW() WHERE project_id = $2 AND file_path = $3",
-            )
-            .bind(&entry.sha)
-            .bind(project_id)
-            .bind(&entry.path)
-            .execute(&state.db)
-            .await;
+            for file in &files {
+                let github_path = github_path_from_local(&file.file_path, &project.github_subfolder);
+                if entry.path == github_path {
+                    let _ = sqlx::query(
+                        "UPDATE project_files SET github_sha = $1, updated_at = NOW() WHERE project_id = $2 AND file_path = $3",
+                    )
+                    .bind(&entry.sha)
+                    .bind(project_id)
+                    .bind(&file.file_path)
+                    .execute(&state.db)
+                    .await;
+                    break;
+                }
+            }
         }
     }
 
@@ -339,5 +398,65 @@ pub async fn push_project(
         "success": true,
         "commit_sha": result.commit_sha,
         "files_pushed": push_files.len(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkRepoRequest {
+    pub repo_url: String,
+    pub branch: Option<String>,
+    pub subfolder: Option<String>,
+}
+
+pub async fn link_project_repo(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<LinkRepoRequest>,
+) -> Result<Json<Value>> {
+    let (owner, repo) = parse_github_repo_url(&body.repo_url).ok_or_else(|| {
+        AppError::BadRequest(
+            "Invalid GitHub repo URL. Use https://github.com/owner/repo or owner/repo.".into(),
+        )
+    })?;
+
+    let project =
+        sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+    let role = resolve_collab_role(&state, project_id, auth.id).await?;
+    if role != "owner" {
+        return Err(AppError::Forbidden);
+    }
+
+    let client = github_client_for_user(&state, auth.id).await?;
+    let repo_info = client.get_repo(&owner, &repo).await?;
+    let branch = body
+        .branch
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        .unwrap_or(&repo_info.default_branch);
+    let subfolder = body.subfolder.as_deref().and_then(normalize_subfolder);
+
+    let updated = sqlx::query_as::<_, Project>(
+        r#"UPDATE projects
+           SET github_owner = $1, github_repo = $2, github_branch = $3, github_subfolder = $4, updated_at = NOW()
+           WHERE id = $5
+           RETURNING *"#,
+    )
+    .bind(&owner)
+    .bind(&repo)
+    .bind(branch)
+    .bind(&subfolder)
+    .bind(project_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(json!({
+        "project": updated,
+        "linked": true,
     })))
 }

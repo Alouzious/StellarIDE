@@ -521,6 +521,155 @@ pub fn language_for_path(path: &str) -> &'static str {
     }
 }
 
+/// Normalize a GitHub subfolder path (no leading/trailing slashes).
+pub fn normalize_subfolder(subfolder: &str) -> Option<String> {
+    let trimmed = subfolder.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Whether a GitHub tree path lives under the given subfolder.
+pub fn file_in_subfolder(path: &str, subfolder: &str) -> bool {
+    match normalize_subfolder(subfolder) {
+        None => true,
+        Some(sub) => path == sub || path.starts_with(&format!("{sub}/")),
+    }
+}
+
+/// Strip subfolder prefix for storage in project_files (contract-relative paths).
+pub fn strip_subfolder_prefix(path: &str, subfolder: &str) -> Option<String> {
+    let sub = normalize_subfolder(subfolder)?;
+    if path == sub {
+        return None;
+    }
+    let prefix = format!("{sub}/");
+    if path.starts_with(&prefix) {
+        Some(path[prefix.len()..].to_string())
+    } else {
+        None
+    }
+}
+
+/// Build full GitHub repo path from a contract-relative project file path.
+pub fn github_path_from_local(local_path: &str, subfolder: &Option<String>) -> String {
+    match subfolder.as_ref().and_then(|s| normalize_subfolder(s)) {
+        None => local_path.to_string(),
+        Some(sub) => {
+            if local_path.is_empty() {
+                sub
+            } else {
+                format!("{sub}/{local_path}")
+            }
+        }
+    }
+}
+
+const CONTRACT_FOLDER_HINTS: &[&str] = &[
+    "contracts",
+    "contract",
+    "on-chain",
+    "onchain",
+    "soroban",
+    "smart-contract",
+    "smart_contract",
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RepoFolderInfo {
+    pub name: String,
+    pub has_cargo_toml: bool,
+    pub suggested: bool,
+}
+
+/// Analyze a recursive Git tree for top-level folders and contract hints.
+pub fn analyze_repo_folders(tree: &GitHubTree) -> (bool, bool, Vec<RepoFolderInfo>) {
+    let mut has_root_cargo = false;
+    let mut folder_cargo: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
+    let mut top_level_files = false;
+
+    for entry in &tree.tree {
+        if entry.entry_type != "blob" {
+            continue;
+        }
+        let path = &entry.path;
+        if !path.contains('/') {
+            if path == "Cargo.toml" {
+                has_root_cargo = true;
+            }
+            top_level_files = true;
+            continue;
+        }
+        let Some((folder, rest)) = path.split_once('/') else {
+            continue;
+        };
+        if rest == "Cargo.toml" {
+            folder_cargo.insert(folder.to_string(), true);
+        } else {
+            folder_cargo.entry(folder.to_string()).or_insert(false);
+        }
+    }
+
+    let has_nested_folders = !folder_cargo.is_empty();
+    let is_flat = !has_nested_folders && top_level_files && has_root_cargo;
+
+    let mut folders: Vec<RepoFolderInfo> = folder_cargo
+        .into_iter()
+        .map(|(name, has_cargo_toml)| {
+            let lower = name.to_lowercase();
+            let suggested = has_cargo_toml
+                || CONTRACT_FOLDER_HINTS
+                    .iter()
+                    .any(|hint| lower == *hint || lower.contains(hint));
+            RepoFolderInfo {
+                name,
+                has_cargo_toml,
+                suggested,
+            }
+        })
+        .collect();
+
+    folders.sort_by(|a, b| {
+        b.suggested
+            .cmp(&a.suggested)
+            .then(b.has_cargo_toml.cmp(&a.has_cargo_toml))
+            .then(a.name.cmp(&b.name))
+    });
+
+    (has_root_cargo, is_flat, folders)
+}
+
+/// Parse owner/repo from a GitHub URL or "owner/repo" shorthand.
+pub fn parse_github_repo_url(input: &str) -> Option<(String, String)> {
+    let trimmed = input.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
+        let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.len() >= 2 {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix("http://github.com/") {
+        let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.len() >= 2 {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+        return None;
+    }
+    let parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() == 2 {
+        Some((parts[0].to_string(), parts[1].to_string()))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,5 +685,31 @@ mod tests {
     fn allows_source_files() {
         assert!(should_import_path("src/lib.rs", Some(1000)));
         assert!(should_import_path("Cargo.toml", Some(500)));
+    }
+
+    #[test]
+    fn subfolder_path_helpers() {
+        assert!(file_in_subfolder("contracts/src/lib.rs", "contracts"));
+        assert!(!file_in_subfolder("frontend/src/App.tsx", "contracts"));
+        assert_eq!(
+            strip_subfolder_prefix("contracts/src/lib.rs", "contracts").unwrap(),
+            "src/lib.rs"
+        );
+        assert_eq!(
+            github_path_from_local("src/lib.rs", &Some("contracts".into())),
+            "contracts/src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn parses_github_urls() {
+        assert_eq!(
+            parse_github_repo_url("https://github.com/stellar/soroban-examples"),
+            Some(("stellar".into(), "soroban-examples".into()))
+        );
+        assert_eq!(
+            parse_github_repo_url("stellar/soroban-examples"),
+            Some(("stellar".into(), "soroban-examples".into()))
+        );
     }
 }

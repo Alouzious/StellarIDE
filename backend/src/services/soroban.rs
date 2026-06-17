@@ -35,12 +35,32 @@ pub struct DeployRequest {
     pub secret_key: Option<String>,
 }
 
+const NO_CARGO_MSG: &str = "No Cargo.toml found. Please select the folder containing your Soroban contract.";
+
 pub async fn run_compile(
     project_id: Uuid,
     files: &[ProjectFile],
     config: &Config,
+    require_cargo_toml: bool,
 ) -> anyhow::Result<SorobanCommandResponse> {
-    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version).await?;
+    let workspace = match write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await {
+        Ok(w) => w,
+        Err(err) if err.to_string().contains(NO_CARGO_MSG) => {
+            return Ok(SorobanCommandResponse {
+                operation: "compile",
+                status: "failed".into(),
+                message: NO_CARGO_MSG.into(),
+                logs: vec![NO_CARGO_MSG.into()],
+                success: false,
+                duration_ms: 0,
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            });
+        }
+        Err(err) => return Err(err),
+    };
     let start = Instant::now();
     let script = "rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown --release";
     let result = execute_script(config, &workspace, script).await;
@@ -95,8 +115,26 @@ pub async fn run_tests(
     project_id: Uuid,
     files: &[ProjectFile],
     config: &Config,
+    require_cargo_toml: bool,
 ) -> anyhow::Result<SorobanCommandResponse> {
-    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version).await?;
+    let workspace = match write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await {
+        Ok(w) => w,
+        Err(err) if err.to_string().contains(NO_CARGO_MSG) => {
+            return Ok(SorobanCommandResponse {
+                operation: "test",
+                status: "failed".into(),
+                message: NO_CARGO_MSG.into(),
+                logs: vec![NO_CARGO_MSG.into()],
+                success: false,
+                duration_ms: 0,
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            });
+        }
+        Err(err) => return Err(err),
+    };
     let start = Instant::now();
     let result = execute_script(config, &workspace, "cargo test -- --nocapture").await;
     cleanup_workspace(&workspace).await;
@@ -138,8 +176,9 @@ pub async fn run_deploy(
     files: &[ProjectFile],
     config: &Config,
     request: DeployRequest,
+    require_cargo_toml: bool,
 ) -> anyhow::Result<SorobanCommandResponse> {
-    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version).await?;
+    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await?;
     let start = Instant::now();
 
     let network = request
@@ -246,8 +285,9 @@ pub async fn run_audit(
     project_id: Uuid,
     files: &[ProjectFile],
     config: &Config,
+    require_cargo_toml: bool,
 ) -> anyhow::Result<SorobanCommandResponse> {
-    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version).await?;
+    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await?;
     let start = Instant::now();
 
     let mut logs = run_static_checks(files);
@@ -362,6 +402,7 @@ async fn write_workspace(
     project_id: Uuid,
     files: &[ProjectFile],
     soroban_sdk_version: &str,
+    require_cargo_toml: bool,
 ) -> anyhow::Result<PathBuf> {
     let root = std::env::temp_dir()
         .join("stellaride")
@@ -394,6 +435,10 @@ async fn write_workspace(
     }
 
     if !has_cargo_toml {
+        if require_cargo_toml {
+            cleanup_workspace(&root).await;
+            return Err(anyhow!(NO_CARGO_MSG));
+        }
         fs::write(
             root.join("Cargo.toml"),
             default_cargo_toml(soroban_sdk_version),
@@ -401,7 +446,7 @@ async fn write_workspace(
         .await?;
     }
 
-    if !has_lib {
+    if !has_lib && !require_cargo_toml {
         fs::create_dir_all(root.join("src")).await?;
         fs::write(root.join("src/lib.rs"), default_contract_content()).await?;
     }

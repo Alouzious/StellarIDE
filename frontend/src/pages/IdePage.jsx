@@ -7,7 +7,7 @@ import {
   Wallet, Users, ArrowLeft, Loader2, CheckCircle, XCircle,
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
-  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Share2,
+  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Share2, Link2,
 } from 'lucide-react'
 import GitHubIcon from '../components/icons/GitHubIcon'
 import useIdeStore from '../features/ide/ideStore'
@@ -23,6 +23,7 @@ import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
 import PresenceBar from '../components/PresenceBar'
 import ShareModal from '../components/ShareModal'
+import LinkGitHubModal from '../components/LinkGitHubModal'
 import api, { getWsBaseUrl } from '../services/api'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
@@ -441,6 +442,14 @@ function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
       </span>
       <span className="text-xs text-stellar-border">·</span>
       <span className="text-xs text-stellar-muted">{project.github_branch || 'main'}</span>
+      {project.github_subfolder && (
+        <>
+          <span className="text-xs text-stellar-border">·</span>
+          <span className="text-xs text-stellar-accent truncate max-w-[120px]" title={project.github_subfolder}>
+            {project.github_subfolder}/
+          </span>
+        </>
+      )}
       {!status?.connected && (
         <button
           type="button"
@@ -466,6 +475,24 @@ function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
       >
         {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
         Push
+      </button>
+    </div>
+  )
+}
+
+function GitHubLinkBar({ onLink, readOnly, isOwner }) {
+  if (readOnly || !isOwner) return null
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stellar-border bg-stellar-card/50 flex-shrink-0">
+      <GitHubIcon className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
+      <span className="text-xs text-stellar-muted">Push to GitHub — link a repository</span>
+      <button
+        type="button"
+        onClick={onLink}
+        className="flex items-center gap-1 text-xs text-stellar-accent hover:underline ml-auto"
+      >
+        <Link2 className="w-3 h-3" />
+        Link Repo
       </button>
     </div>
   )
@@ -497,6 +524,7 @@ export default function IdePage() {
   const [chatWidth, setChatWidth] = useState(320)
   const [pushing, setPushing] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
   const projectCollabRef = useRef(null)
   const readOnly = isReadOnly()
   const userName = user?.email?.split('@')[0] || 'user'
@@ -771,13 +799,21 @@ export default function IdePage() {
         {/* Editor + Output */}
         <div className="flex-1 flex flex-col min-w-0">
           <PresenceBar presence={presence} connectionStatus={connectionStatus} />
-          <GitHubPushBar
-            project={project}
-            projectId={projectId}
-            onPush={handlePushGitHub}
-            pushing={pushing}
-            readOnly={readOnly}
-          />
+          {project?.github_owner && project?.github_repo ? (
+            <GitHubPushBar
+              project={project}
+              projectId={projectId}
+              onPush={handlePushGitHub}
+              pushing={pushing}
+              readOnly={readOnly}
+            />
+          ) : (
+            <GitHubLinkBar
+              onLink={() => setLinkOpen(true)}
+              readOnly={readOnly}
+              isOwner={role === 'owner'}
+            />
+          )}
           <div className="flex items-center border-b border-stellar-border bg-stellar-card h-8 flex-shrink-0">
             {activeFile && (
               <div className="flex items-center gap-2 px-4 h-full border-r border-stellar-border bg-stellar-surface text-xs font-mono text-stellar-text">
@@ -887,6 +923,16 @@ export default function IdePage() {
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} projectId={projectId} />
+      <LinkGitHubModal
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+        projectId={projectId}
+        onLinked={(p) => {
+          setProject(p)
+          fetchProjects()
+          toast.success('GitHub repository linked')
+        }}
+      />
     </div>
   )
 }

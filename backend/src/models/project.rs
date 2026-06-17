@@ -11,6 +11,7 @@ pub struct Project {
     pub github_owner: Option<String>,
     pub github_repo: Option<String>,
     pub github_branch: Option<String>,
+    pub github_subfolder: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

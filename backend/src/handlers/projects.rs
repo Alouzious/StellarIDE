@@ -177,8 +177,10 @@ pub async fn compile_project(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
-    let result = soroban::run_compile(project_id, &files, &state.config)
+    let require_cargo = project_requires_cargo(&project);
+    let result = soroban::run_compile(project_id, &files, &state.config, require_cargo)
         .await
         .map_err(AppError::Internal)?;
 
@@ -208,8 +210,10 @@ pub async fn test_project(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
-    let result = soroban::run_tests(project_id, &files, &state.config)
+    let require_cargo = project_requires_cargo(&project);
+    let result = soroban::run_tests(project_id, &files, &state.config, require_cargo)
         .await
         .map_err(AppError::Internal)?;
     Ok(Json(json!(result)))
@@ -240,7 +244,9 @@ pub async fn deploy_project(
             "Wallet address is required. Connect Freighter before deploying.".into(),
         ));
     }
+    let project = load_project(project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
+    let require_cargo = project_requires_cargo(&project);
     let result = soroban::run_deploy(
         project_id,
         &files,
@@ -250,6 +256,7 @@ pub async fn deploy_project(
             network: body.network,
             secret_key: body.secret_key,
         },
+        require_cargo,
     )
     .await
     .map_err(AppError::Internal)?;
@@ -262,8 +269,10 @@ pub async fn audit_project(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
-    let result = soroban::run_audit(project_id, &files, &state.config)
+    let require_cargo = project_requires_cargo(&project);
+    let result = soroban::run_audit(project_id, &files, &state.config, require_cargo)
         .await
         .map_err(AppError::Internal)?;
     Ok(Json(json!(result)))
@@ -293,4 +302,18 @@ async fn load_project_files(project_id: Uuid, state: &AppState) -> Result<Vec<Pr
     .fetch_all(&state.db)
     .await?;
     Ok(files)
+}
+
+async fn load_project(project_id: Uuid, state: &AppState) -> Result<Project> {
+    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
+        .bind(project_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound)
+}
+
+fn project_requires_cargo(project: &Project) -> bool {
+    project.github_owner.is_some()
+        || project.github_repo.is_some()
+        || project.github_subfolder.is_some()
 }

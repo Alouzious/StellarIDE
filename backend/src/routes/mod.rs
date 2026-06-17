@@ -43,6 +43,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/github/connect-url", get(handlers::oauth::github_connect))
         .route("/github/repos", get(handlers::github::list_repos))
         .route(
+            "/github/repos/:owner/:repo/folders",
+            get(handlers::github::list_repo_folders),
+        )
+        .route(
             "/github/repos/:owner/:repo/tree",
             get(handlers::github::get_file_tree),
         )
@@ -58,6 +62,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/projects/:id/github/push",
             post(handlers::github::push_project),
+        )
+        .route(
+            "/projects/:id/github/link",
+            post(handlers::github::link_project_repo),
         )
         .route("/projects", get(handlers::projects::list_projects))
         .route("/projects", post(handlers::projects::create_project))

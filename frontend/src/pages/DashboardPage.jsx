@@ -7,10 +7,12 @@ import {
 import GitHubIcon from '../components/icons/GitHubIcon'
 import useAuthStore from '../features/auth/authStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
+import useGitHubStore from '../features/github/githubStore'
 import Button from '../components/ui/Button'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
 import ImportGitHubModal from '../components/ImportGitHubModal'
+import LinkGitHubModal from '../components/LinkGitHubModal'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -80,6 +82,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
   const { projects, loading, fetchProjects, createProject, updateProject, deleteProject } = useDashboardStore()
+  const { linkProjectRepo } = useGitHubStore()
   const { toasts, toast, removeToast } = useToast()
 
   const handleLogout = () => {
@@ -92,7 +95,9 @@ export default function DashboardPage() {
   const [editTarget, setEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [githubOpen, setGithubOpen] = useState(false)
-  const [formData, setFormData] = useState({ name: '', description: '' })
+  const [formData, setFormData] = useState({ name: '', description: '', repoUrl: '', branch: 'main' })
+  const [linkAfterCreate, setLinkAfterCreate] = useState(false)
+  const [linkModalProject, setLinkModalProject] = useState(null)
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -113,11 +118,29 @@ export default function DashboardPage() {
     if (!formData.name.trim()) { setFormError('Project name is required'); return }
     setSubmitting(true)
     const result = await createProject(formData.name.trim(), formData.description.trim())
+    if (result.success && linkAfterCreate && formData.repoUrl.trim()) {
+      const linkResult = await linkProjectRepo(
+        result.project.id,
+        formData.repoUrl.trim(),
+        formData.branch || 'main',
+        undefined
+      )
+      if (!linkResult.success) {
+        setSubmitting(false)
+        toast.error(linkResult.error || 'Project created but GitHub link failed')
+        setCreateOpen(false)
+        setFormData({ name: '', description: '', repoUrl: '', branch: 'main' })
+        setLinkAfterCreate(false)
+        return
+      }
+    }
     setSubmitting(false)
     if (result.success) {
-      toast.success('Project created!')
+      toast.success(linkAfterCreate && formData.repoUrl.trim() ? 'Project created and linked!' : 'Project created!')
       setCreateOpen(false)
-      setFormData({ name: '', description: '' })
+      setFormData({ name: '', description: '', repoUrl: '', branch: 'main' })
+      setLinkAfterCreate(false)
+      if (result.project?.id) navigate(`/ide/${result.project.id}`)
     } else {
       toast.error(result.error)
     }
@@ -186,7 +209,7 @@ export default function DashboardPage() {
               <GitHubIcon className="w-4 h-4" />
               Import from GitHub
             </Button>
-            <Button onClick={() => { setFormData({ name: '', description: '' }); setFormError(''); setCreateOpen(true) }}>
+            <Button onClick={() => { setFormData({ name: '', description: '', repoUrl: '', branch: 'main' }); setFormError(''); setLinkAfterCreate(false); setCreateOpen(true) }}>
               <Plus className="w-4 h-4" />
               New Project
             </Button>
@@ -224,7 +247,7 @@ export default function DashboardPage() {
               </p>
             )}
             {!search && (
-              <Button onClick={() => { setFormData({ name: '', description: '' }); setFormError(''); setCreateOpen(true) }}>
+              <Button onClick={() => { setFormData({ name: '', description: '', repoUrl: '', branch: 'main' }); setFormError(''); setLinkAfterCreate(false); setCreateOpen(true) }}>
                 <Plus className="w-4 h-4" />
                 Create Project
               </Button>
@@ -262,6 +285,33 @@ export default function DashboardPage() {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
+          <label className="flex items-center gap-2 text-sm text-stellar-muted cursor-pointer">
+            <input
+              type="checkbox"
+              checked={linkAfterCreate}
+              onChange={(e) => setLinkAfterCreate(e.target.checked)}
+              className="rounded border-stellar-border"
+            />
+            Link to GitHub repository after create
+          </label>
+          {linkAfterCreate && (
+            <>
+              <Input
+                label="GitHub repo URL"
+                placeholder="https://github.com/owner/repo"
+                value={formData.repoUrl}
+                onChange={(e) => setFormData({ ...formData, repoUrl: e.target.value })}
+              />
+              <Input
+                label="Branch"
+                value={formData.branch}
+                onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+              />
+              <p className="text-xs text-stellar-muted">
+                Use Import from GitHub to pick a contract subfolder. Or open the IDE and use Link Repo to scan folders.
+              </p>
+            </>
+          )}
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1 justify-center" onClick={() => setCreateOpen(false)}>
               Cancel
@@ -325,6 +375,14 @@ export default function DashboardPage() {
         onClose={() => setGithubOpen(false)}
         onImported={() => fetchProjects()}
       />
+      {linkModalProject && (
+        <LinkGitHubModal
+          open={!!linkModalProject}
+          onClose={() => setLinkModalProject(null)}
+          projectId={linkModalProject.id}
+          onLinked={() => { fetchProjects(); setLinkModalProject(null) }}
+        />
+      )}
     </div>
   )
 }
