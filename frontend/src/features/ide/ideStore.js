@@ -352,6 +352,56 @@ const useIdeStore = create((set, get) => ({
       appendLog(`✖  ${err.response?.data?.error || 'Audit failed.'}`, 'error')
     }
   },
+
+  applyFileTreeUpdate: (msg) => {
+    const { files, activeFile } = get()
+    const { action, file_path, content, language, old_path } = msg
+
+    if (action === 'create' || action === 'update') {
+      const exists = files.some((f) => f.file_path === file_path)
+      const entry = {
+        id: `remote-${file_path}`,
+        project_id: msg.project_id,
+        file_path,
+        content: content || '',
+        language: language || 'rust',
+      }
+      set({
+        files: exists
+          ? files.map((f) => (f.file_path === file_path ? { ...f, ...entry } : f))
+          : [...files, entry],
+      })
+    } else if (action === 'delete') {
+      set({ files: files.filter((f) => f.file_path !== file_path) })
+      if (activeFile?.file_path === file_path) {
+        set({ activeFile: null, editorContent: '' })
+      }
+    } else if (action === 'rename' && old_path) {
+      set({
+        files: files.map((f) =>
+          f.file_path === old_path ? { ...f, file_path } : f
+        ),
+        activeFile:
+          activeFile?.file_path === old_path
+            ? { ...activeFile, file_path }
+            : activeFile,
+      })
+    }
+  },
+
+  debouncedSaveFile: async (projectId, filePath, content) => {
+    if (!projectId || !filePath) return
+    const language = filePath.endsWith('.toml') ? 'toml' : 'rust'
+    try {
+      await api.post(`/projects/${projectId}/files`, {
+        file_path: filePath,
+        content,
+        language,
+      })
+    } catch {
+      // silent — collab sync is primary
+    }
+  },
 }))
 
 export default useIdeStore

@@ -10,11 +10,14 @@ mod services;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use services::collab::CollabState;
+
 pub type AppState = Arc<AppStateInner>;
 
 pub struct AppStateInner {
     pub db: sqlx::PgPool,
     pub config: config::Config,
+    pub collab: CollabState,
 }
 
 #[tokio::main]
@@ -38,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
     let state: AppState = Arc::new(AppStateInner {
         db: pool,
         config: cfg.clone(),
+        collab: CollabState::new(),
     });
     let app = routes::build_router(state);
 

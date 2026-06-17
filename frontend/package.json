@@ -14,12 +14,17 @@
     "@stellar/stellar-sdk": "^15.0.1",
     "@vercel/analytics": "^2.0.1",
     "axios": "^1.15.1",
+    "lib0": "^0.2.99",
     "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.1",
     "react-syntax-highlighter": "^16.1.1",
+    "y-monaco": "^0.1.6",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.27",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

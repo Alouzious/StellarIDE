@@ -8,6 +8,11 @@ const normalizeApiBase = (base) => {
 
 export const getApiBaseUrl = () => normalizeApiBase(import.meta.env.VITE_API_URL || 'http://localhost:8080')
 
+export const getWsBaseUrl = () => {
+  const base = getApiBaseUrl() || 'http://localhost:8080'
+  return base.replace(/^http/i, 'ws')
+}
+
 const api = axios.create({
   baseURL: `${getApiBaseUrl()}/api/v1`,
   headers: {

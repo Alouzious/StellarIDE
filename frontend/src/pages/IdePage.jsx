@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import {
   Code2, Play, TestTube, Rocket, Save, ChevronRight,
@@ -7,17 +7,22 @@ import {
   Wallet, Users, ArrowLeft, Loader2, CheckCircle, XCircle,
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
-  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Github, Upload,
+  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Github, Upload, Share2,
 } from 'lucide-react'
 import useIdeStore from '../features/ide/ideStore'
 import useChatStore from '../features/ide/chatStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
 import useAuthStore from '../features/auth/authStore'
 import useGitHubStore from '../features/github/githubStore'
+import useCollabStore from '../features/collab/collabStore'
+import { ProjectCollabProvider } from '../features/collab/collabProvider'
 import Button from '../components/ui/Button'
 import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
-import api from '../services/api'
+import CollabEditor from '../components/CollabEditor'
+import PresenceBar from '../components/PresenceBar'
+import ShareModal from '../components/ShareModal'
+import api, { getWsBaseUrl } from '../services/api'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -400,7 +405,16 @@ function DeployPanel({ onClose, projectId }) {
   )
 }
 
-function GitHubPushBar({ project, projectId, onPush, pushing }) {
+const COLLAB_COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
+
+function userColor(userId) {
+  if (!userId) return COLLAB_COLORS[0]
+  let hash = 0
+  for (let i = 0; i < userId.length; i++) hash = (hash + userId.charCodeAt(i)) % COLLAB_COLORS.length
+  return COLLAB_COLORS[hash]
+}
+
+function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
   const [message, setMessage] = useState('')
   const { connectGitHub, fetchStatus, status } = useGitHubStore()
 
@@ -446,7 +460,7 @@ function GitHubPushBar({ project, projectId, onPush, pushing }) {
       <button
         type="button"
         onClick={handlePush}
-        disabled={pushing || !message.trim() || !status?.connected}
+        disabled={pushing || !message.trim() || !status?.connected || readOnly}
         className="flex items-center gap-1 px-2.5 py-1 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded text-xs font-semibold transition-all disabled:opacity-50"
       >
         {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
@@ -458,15 +472,20 @@ function GitHubPushBar({ project, projectId, onPush, pushing }) {
 
 export default function IdePage() {
   const { id: projectId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { projects, fetchProjects } = useDashboardStore()
-  const { logout } = useAuthStore()
+  const { logout, user, token } = useAuthStore()
+  const {
+    role, presence, connectionStatus,
+    fetchRole, joinInvite, setPresence, setConnectionStatus, reset: resetCollab, isReadOnly,
+  } = useCollabStore()
   const {
     project, files, activeFile, editorContent, outputLog,
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile, saveAllFiles,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
-    pushToGitHub,
+    pushToGitHub, applyFileTreeUpdate, debouncedSaveFile,
   } = useIdeStore()
   const { isOpen: chatOpen, toggleChat, closeChat } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
@@ -476,7 +495,45 @@ export default function IdePage() {
   const [terminalHeight, setTerminalHeight] = useState(176)
   const [chatWidth, setChatWidth] = useState(320)
   const [pushing, setPushing] = useState(false)
-  const dragRef = useRef(null)
+  const [shareOpen, setShareOpen] = useState(false)
+  const projectCollabRef = useRef(null)
+  const readOnly = isReadOnly()
+  const userName = user?.email?.split('@')[0] || 'user'
+  const userColorHex = useMemo(() => userColor(user?.id || ''), [user?.id])
+
+  useEffect(() => {
+    if (projectId) fetchRole(projectId)
+    return () => resetCollab()
+  }, [projectId, fetchRole, resetCollab])
+
+  useEffect(() => {
+    const invite = searchParams.get('invite')
+    if (!invite || !projectId) return
+    joinInvite(projectId, invite).then((r) => {
+      if (r.success) toast.success(`Joined as ${r.role}`)
+      else toast.error(r.error || 'Invalid invite')
+      searchParams.delete('invite')
+      setSearchParams(searchParams, { replace: true })
+    })
+  }, [projectId, searchParams, joinInvite, setSearchParams, toast])
+
+  useEffect(() => {
+    if (!projectId || !token || !user?.id) return
+
+    const url = `${getWsBaseUrl()}/collab/${projectId}/project?token=${encodeURIComponent(token)}`
+    projectCollabRef.current = new ProjectCollabProvider({
+      url,
+      userId: user.id,
+      onFileTreeUpdate: (msg) => applyFileTreeUpdate({ ...msg, project_id: projectId }),
+      onPresence: (users) => setPresence(users),
+      onStatus: setConnectionStatus,
+    })
+
+    return () => {
+      projectCollabRef.current?.destroy()
+      projectCollabRef.current = null
+    }
+  }, [projectId, token, user?.id, applyFileTreeUpdate, setPresence, setConnectionStatus])
 
   const startDrag = (e) => {
     e.preventDefault()
@@ -605,12 +662,12 @@ export default function IdePage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          <button onClick={handleSave} disabled={isSaving}
+          <button onClick={handleSave} disabled={isSaving || readOnly}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all">
             {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">Save</span>
           </button>
-          <button onClick={handleCompile} disabled={compileStatus === 'running'}
+          <button onClick={handleCompile} disabled={compileStatus === 'running' || readOnly}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded-md text-xs font-semibold transition-all disabled:opacity-50">
             {actionIcon(compileStatus, Play)}
             <span className="hidden sm:inline">Compile</span>
@@ -648,10 +705,20 @@ export default function IdePage() {
             <MessageSquare className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">AI Chat</span>
           </button>
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-md">
-            <Users className="w-3 h-3 text-purple-400" />
-            <span className="text-xs text-purple-400 font-medium hidden md:inline">Collab</span>
-            <span className="text-xs text-purple-400/70 hidden md:inline">· Soon</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-md text-xs text-purple-400 font-medium hover:bg-purple-500/20 transition-all"
+            >
+              <Share2 className="w-3 h-3" />
+              <span className="hidden md:inline">Share</span>
+            </button>
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-md">
+              <Users className="w-3 h-3 text-purple-400" />
+              <span className="text-xs text-purple-400 font-medium hidden md:inline">
+                {presence.length || 1} online
+              </span>
+            </div>
           </div>
           <button onClick={handleLogout}
             className="p-1.5 text-stellar-muted hover:text-white hover:bg-stellar-surface rounded-md transition-colors" title="Sign out">
@@ -664,20 +731,51 @@ export default function IdePage() {
       <div className="flex flex-1 min-h-0">
         {/* File Sidebar */}
         <div className="w-52 border-r border-stellar-border bg-stellar-card flex-shrink-0 hidden md:flex flex-col">
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stellar-border">
-            <FolderOpen className="w-3.5 h-3.5 text-stellar-accent" />
-            <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide">Explorer</span>
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-stellar-border">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-3.5 h-3.5 text-stellar-accent" />
+              <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide">Explorer</span>
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                title="New file"
+                onClick={() => {
+                  const name = window.prompt('New file path (e.g. src/helpers.rs)')
+                  if (!name?.trim()) return
+                  const path = name.trim()
+                  projectCollabRef.current?.sendFileTreeUpdate({
+                    action: 'create',
+                    file_path: path,
+                    content: '',
+                    language: path.endsWith('.toml') ? 'toml' : 'rust',
+                  })
+                  applyFileTreeUpdate({
+                    action: 'create',
+                    file_path: path,
+                    content: '',
+                    language: path.endsWith('.toml') ? 'toml' : 'rust',
+                    project_id: projectId,
+                  })
+                }}
+                className="text-xs text-stellar-accent hover:underline"
+              >
+                + File
+              </button>
+            )}
           </div>
           <FileTree files={files} activeFile={activeFile} onSelect={setActiveFile} />
         </div>
 
         {/* Editor + Output */}
         <div className="flex-1 flex flex-col min-w-0">
+          <PresenceBar presence={presence} connectionStatus={connectionStatus} />
           <GitHubPushBar
             project={project}
             projectId={projectId}
             onPush={handlePushGitHub}
             pushing={pushing}
+            readOnly={readOnly}
           />
           <div className="flex items-center border-b border-stellar-border bg-stellar-card h-8 flex-shrink-0">
             {activeFile && (
@@ -696,6 +794,23 @@ export default function IdePage() {
                   <p className="text-xs text-stellar-border">Compiled and saved — ready to deploy</p>
                 </div>
               </div>
+            ) : token && user?.id && activeFile ? (
+              <CollabEditor
+                key={activeFile.file_path}
+                projectId={projectId}
+                filePath={activeFile.file_path}
+                token={token}
+                userId={user.id}
+                userName={userName}
+                userColor={userColorHex}
+                initialContent={activeFile.content ?? editorContent}
+                language={editorLanguage}
+                readOnly={readOnly}
+                onContentChange={(content) => setEditorContent(content)}
+                onSaveDebounced={(content) =>
+                  debouncedSaveFile(projectId, activeFile.file_path, content)
+                }
+              />
             ) : (
               <Editor
                 height="100%"
@@ -716,6 +831,7 @@ export default function IdePage() {
                   tabSize: 4,
                   insertSpaces: true,
                   padding: { top: 16, bottom: 16 },
+                  readOnly,
                 }}
               />
             )}
@@ -769,6 +885,7 @@ export default function IdePage() {
       </div>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} projectId={projectId} />
     </div>
   )
 }

@@ -1,5 +1,7 @@
 pub mod ai;
 pub mod auth;
+pub mod collab;
+pub mod collaborators;
 pub mod github;
 pub mod health;
 pub mod oauth;

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::{AppError, Result},
+    handlers::collab::resolve_collab_role,
     middleware::auth::AuthUser,
     models::{
         project::{CreateProjectRequest, Project, UpdateProjectRequest},
@@ -22,8 +23,14 @@ pub async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>> {
     let projects = sqlx::query_as::<_, Project>(
-        "SELECT * FROM projects WHERE user_id = $1 ORDER BY updated_at DESC",
+        r#"(SELECT * FROM projects WHERE user_id = $1
+           UNION
+           SELECT p.* FROM projects p
+           JOIN project_collaborators c ON c.project_id = p.id
+           WHERE c.user_id = $1)
+           ORDER BY updated_at DESC"#,
     )
+    .bind(auth.id)
     .bind(auth.id)
     .fetch_all(&state.db)
     .await?;
@@ -57,13 +64,16 @@ pub async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Project>> {
-    let project =
-        sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-            .bind(id)
-            .bind(auth.id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or(AppError::NotFound)?;
+    let role = resolve_collab_role(&state, id, auth.id).await?;
+    if role == "none" {
+        return Err(AppError::NotFound);
+    }
+
+    let project = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     Ok(Json(project))
 }
 
@@ -121,12 +131,7 @@ pub async fn list_files(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Vec<ProjectFile>>> {
     // Ensure project belongs to user
-    let _ = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-        .bind(project_id)
-        .bind(auth.id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let _ = ensure_project_access(auth.id, project_id, &state).await?;
 
     let files = sqlx::query_as::<_, ProjectFile>(
         "SELECT * FROM project_files WHERE project_id = $1 ORDER BY file_path",
@@ -144,12 +149,7 @@ pub async fn save_file(
     Json(body): Json<SaveFileRequest>,
 ) -> Result<Json<ProjectFile>> {
     // Ensure project belongs to user
-    let _ = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-        .bind(project_id)
-        .bind(auth.id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    ensure_editor_access(auth.id, project_id, &state).await?;
 
     let language = body.language.as_deref().unwrap_or("rust");
 
@@ -176,7 +176,7 @@ pub async fn compile_project(
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
-    ensure_project_access(auth.id, project_id, &state).await?;
+    ensure_editor_access(auth.id, project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
     let result = soroban::run_compile(project_id, &files, &state.config)
         .await
@@ -207,7 +207,7 @@ pub async fn test_project(
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
-    ensure_project_access(auth.id, project_id, &state).await?;
+    ensure_editor_access(auth.id, project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
     let result = soroban::run_tests(project_id, &files, &state.config)
         .await
@@ -228,7 +228,7 @@ pub async fn deploy_project(
     Path(project_id): Path<Uuid>,
     Json(body): Json<DeployProjectRequest>,
 ) -> Result<Json<Value>> {
-    ensure_project_access(auth.id, project_id, &state).await?;
+    ensure_editor_access(auth.id, project_id, &state).await?;
     let wallet_address = body
         .wallet_address
         .as_deref()
@@ -261,7 +261,7 @@ pub async fn audit_project(
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
-    ensure_project_access(auth.id, project_id, &state).await?;
+    ensure_editor_access(auth.id, project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
     let result = soroban::run_audit(project_id, &files, &state.config)
         .await
@@ -270,12 +270,18 @@ pub async fn audit_project(
 }
 
 async fn ensure_project_access(user_id: Uuid, project_id: Uuid, state: &AppState) -> Result<()> {
-    let _ = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-        .bind(project_id)
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let role = resolve_collab_role(state, project_id, user_id).await?;
+    if role == "none" {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+async fn ensure_editor_access(user_id: Uuid, project_id: Uuid, state: &AppState) -> Result<()> {
+    let role = resolve_collab_role(state, project_id, user_id).await?;
+    if role == "none" || role == "viewer" {
+        return Err(AppError::Forbidden);
+    }
     Ok(())
 }
 

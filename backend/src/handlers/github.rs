@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::{AppError, Result},
+    handlers::collab::resolve_collab_role,
     middleware::auth::AuthUser,
     models::{
         oauth_connection::OAuthConnection,
@@ -263,12 +264,16 @@ pub async fn push_project(
     }
 
     let project =
-        sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+        sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
             .bind(project_id)
-            .bind(auth.id)
             .fetch_optional(&state.db)
             .await?
             .ok_or(AppError::NotFound)?;
+
+    let role = resolve_collab_role(&state, project_id, auth.id).await?;
+    if role != "owner" && role != "editor" {
+        return Err(AppError::Forbidden);
+    }
 
     let owner = project
         .github_owner

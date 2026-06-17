@@ -83,11 +83,35 @@ pub fn build_router(state: AppState) -> Router {
         .route("/ai/chat", post(handlers::ai::chat))
         .route("/projects/:id/ai-fix", post(handlers::ai::ai_fix))
         .route("/projects/:id/ai-explain", post(handlers::ai::ai_explain))
+        .route(
+            "/projects/:id/collaborators",
+            get(handlers::collaborators::list_collaborators),
+        )
+        .route(
+            "/projects/:id/collaborators/invite",
+            post(handlers::collaborators::create_invite),
+        )
+        .route(
+            "/projects/:id/collaborators/join",
+            post(handlers::collaborators::join_invite),
+        )
+        .route(
+            "/projects/:id/collaborators/me",
+            get(handlers::collaborators::get_my_role),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
         .nest("/api/v1", public)
         .nest("/api/v1", protected)
+        .route(
+            "/collab/:project_id",
+            get(handlers::collab::collab_ws_handler),
+        )
+        .route(
+            "/collab/:project_id/project",
+            get(handlers::collab::project_collab_ws_handler),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
