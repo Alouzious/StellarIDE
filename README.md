@@ -6,9 +6,9 @@
 
 **A professional, browser-native smart contract IDE for the Stellar / Soroban ecosystem.**
 
-Write · Compile · Test · Deploy · Collaborate · Push to GitHub — no local toolchain required.
+Write · Compile · Test · Deploy · Audit · Collaborate · Push to GitHub. No local toolchain required.
 
-🌐 **[https://stellaride.dev](https://stellar-ide-ecru.vercel.app)**
+🌐 **[https://stellaride.dev](https://stellar-ide-ecru.vercel.app)** · 📖 **[User Guide](https://stellar-ide-ecru.vercel.app/docs/guide)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -21,18 +21,22 @@ Write · Compile · Test · Deploy · Collaborate · Push to GitHub — no local
 
 ## What is StellarIDE?
 
-StellarIDE is a full-stack, open-source browser IDE built specifically for [Soroban](https://developers.stellar.org/docs/build/smart-contracts) smart contract development on the [Stellar](https://stellar.org) network.
+StellarIDE is a full-stack, open-source browser IDE built for [Soroban](https://developers.stellar.org/docs/build/smart-contracts) smart contract development on the [Stellar](https://stellar.org) network.
 
-It gives developers everything they need in one place:
+Everything you need in one place:
 
 - **Write** Soroban contracts with Monaco Editor (the VS Code engine)
+- **Start fast** with 8 built-in contract templates (token, NFT, voting, escrow, and more)
 - **Compile** to WASM directly from the browser
-- **Test** with `cargo test` — no local Rust needed
-- **Deploy** to Testnet or Mainnet with a generated wallet
+- **Test** with `cargo test` (no local Rust install required)
+- **Deploy** to Testnet or Mainnet with a generated wallet or Freighter
+- **Audit** contracts with real [Scout](https://github.com/CoinFabrik/scout-soroban) static analysis
+- **Fix errors** with AI-powered suggestions in the terminal
+- **Ask StellarAI** for help via the built-in chat assistant
 - **Collaborate** in real time with live cursors, Yjs CRDT sync, and invite links
-- **Sync with GitHub** — import repos, edit, and push commits via the REST API
-- **Audit** contracts with static analysis
-- **Chat** with an AI assistant that understands Soroban
+- **Manage projects** with settings for rename, collaborators, and delete
+- **Sync with GitHub** to import repos, edit, and push commits via the REST API
+- **Learn** with step-by-step docs at `/docs/guide`
 
 ---
 
@@ -50,9 +54,11 @@ It gives developers everything they need in one place:
 | Database | PostgreSQL (Neon or self-hosted) |
 | Auth | JWT + GitHub OAuth + Google OAuth |
 | GitHub | REST API import / push (no git CLI) |
-| AI Chat | Groq API |
+| AI | Groq API (chat, fix, explain) |
+| Audit | Scout (CoinFabrik) in sandbox |
 | ORM | SQLx + auto-migrations |
 | Infra | Docker + Docker Compose |
+| Wallets | Stellar Wallets Kit (Freighter, xBull, Albedo, and more) |
 | Stellar SDK | stellar-sdk (JS) + soroban-sdk (Rust) |
 
 ---
@@ -63,60 +69,35 @@ It gives developers everything they need in one place:
 StellarIDE/
 ├── backend/                        # Rust + Axum REST API
 │   ├── src/
-│   │   ├── main.rs                 # Entry point
-│   │   ├── config.rs               # Environment config
-│   │   ├── errors.rs               # Unified error types
-│   │   ├── db/mod.rs               # PgPool setup
 │   │   ├── handlers/
-│   │   │   ├── ai.rs               # AI chat + fix + explain
+│   │   │   ├── ai.rs               # AI chat, fix, explain
 │   │   │   ├── auth.rs             # Register / login / me
 │   │   │   ├── collab.rs           # WebSocket real-time collaboration
-│   │   │   ├── collaborators.rs    # Invite links + permissions
+│   │   │   ├── collaborators.rs    # Invite links, roles, remove
 │   │   │   ├── github.rs           # GitHub import / push API
-│   │   │   ├── health.rs           # Health check
 │   │   │   ├── oauth.rs            # GitHub + Google OAuth
-│   │   │   └── projects.rs         # Projects + files + compile + test + deploy + audit
-│   │   ├── middleware/auth.rs      # JWT guard
-│   │   ├── models/                 # user, project, project_file, oauth_connection
-│   │   ├── routes/mod.rs           # Router builder
-│   │   └── services/
-│   │       ├── soroban.rs          # Compile / test / deploy / audit pipeline
-│   │       ├── github.rs           # GitHub REST client
-│   │       └── collab.rs           # In-memory collab room state
-│   ├── migrations/                 # SQLx SQL migrations (auto-run on startup)
-│   ├── Cargo.toml
-│   ├── Dockerfile
-│   └── .env.example
+│   │   │   ├── projects.rs         # Projects, files, compile, test, deploy, audit
+│   │   │   └── templates.rs        # GET /templates
+│   │   ├── services/
+│   │   │   ├── soroban.rs          # Compile / test / deploy pipeline
+│   │   │   ├── scout_audit.rs      # Scout audit runner
+│   │   │   ├── templates.rs        # 8 Soroban contract templates
+│   │   │   ├── github.rs           # GitHub REST client
+│   │   │   └── collab.rs           # In-memory collab room state
+│   │   └── migrations/             # SQLx migrations (auto-run on startup)
+│   └── Dockerfile
 │
 ├── frontend/                       # React + Vite SPA
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx
-│   │   │   ├── Footer.jsx
-│   │   │   └── ui/                 # Button, Input, Card, Modal, Toast, ChatPanel
-│   │   ├── features/
-│   │   │   ├── auth/authStore.js   # Login, register, OAuth, JWT persistence
-│   │   │   ├── dashboard/          # Project management store
-│   │   │   ├── github/             # GitHub import + status store
-│   │   │   ├── collab/             # Collaboration + presence store
-│   │   │   ├── ide/
-│   │   │   │   ├── ideStore.js     # Editor, files, compile/test/deploy/audit, wallet
-│   │   │   │   └── chatStore.js    # AI chat state
-│   │   │   └── landing/            # Landing page sections
-│   │   ├── components/             # CollabEditor, ShareModal, ImportGitHubModal, etc.
-│   │   ├── layouts/                # PublicLayout, AuthLayout, ProtectedLayout
-│   │   ├── pages/                  # Landing, Login, Register, Dashboard, IDE, OAuth, 404
-│   │   ├── hooks/useToast.js
-│   │   └── services/api.js         # Axios instance
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── .env.example
+│   │   ├── pages/                  # Landing, Dashboard, IDE, ProjectSettings, Docs
+│   │   ├── components/             # TemplatePickerModal, AiFixPanel, AuditResultsPanel, etc.
+│   │   ├── docs/                   # User guide + technical reference
+│   │   ├── features/               # auth, dashboard, ide, collab, github, wallet stores
+│   │   └── layouts/                # Public, Auth, Protected, Docs layouts
+│   └── Dockerfile
 │
-├── sandbox/
-│   └── Dockerfile                  # Rust + wasm32 + Stellar CLI sandbox image
-│
+├── sandbox/                        # Rust + wasm32 + Stellar CLI + Scout image
 ├── docker-compose.yml
-├── .env.example
 └── README.md
 ```
 
@@ -128,18 +109,18 @@ StellarIDE/
 
 - [Docker](https://docs.docker.com/get-docker/) + Docker Compose v2 **OR**
 - Rust (for backend) + Node.js 20+ (for frontend)
-- A PostgreSQL database — [Neon](https://neon.tech) free tier works great
+- A PostgreSQL database ([Neon](https://neon.tech) free tier works well)
 
 ---
 
-### Option A — Docker (recommended)
+### Option A: Docker (recommended)
 
-This runs everything in containers with one command.
+Run everything in containers with one command.
 
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/StellarIDE.git
+git clone https://github.com/Alouzious/StellarIDE.git
 cd StellarIDE
 ```
 
@@ -153,9 +134,9 @@ Open `.env` and set at minimum:
 
 ```env
 JWT_SECRET=your-random-secret-min-32-chars
-DATABASE_URL=postgresql://user:password@host/stellaride?sslmode=require
+DATABASE_URL=postgresql://stellaride_user:secure_password@postgres:5432/stellaride
 
-# Execution mode — MUST be local for Docker
+# Execution mode: MUST be local for Docker
 SOROBAN_EXECUTION_MODE=local
 
 # Optional but recommended
@@ -177,25 +158,26 @@ docker compose up --build
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:8080 |
 | Health check | http://localhost:8080/api/v1/health |
+| User guide | http://localhost:3000/docs/guide |
 
 ---
 
-### Option B — Two Terminals (local dev)
+### Option B: Two terminals (local dev)
 
-This is the fastest way to develop — hot reload on both frontend and backend.
+Fastest way to develop with hot reload on both frontend and backend.
 
-**Terminal 1 — Backend**
+**Terminal 1: Backend**
 
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env — set DATABASE_URL, JWT_SECRET, SOROBAN_EXECUTION_MODE=local
+# Edit .env: set DATABASE_URL, JWT_SECRET, SOROBAN_EXECUTION_MODE=local
 
 cargo run
 # Backend runs on http://localhost:8080
 ```
 
-**Terminal 2 — Frontend**
+**Terminal 2: Frontend**
 
 ```bash
 cd frontend
@@ -207,28 +189,29 @@ npm run dev
 # Frontend runs on http://localhost:5173
 ```
 
-> **Note:** When running locally, make sure `SOROBAN_EXECUTION_MODE=local` in `backend/.env` and that you have `stellar` CLI and `rustup` with `wasm32-unknown-unknown` target installed.
+> **Note:** When running locally, set `SOROBAN_EXECUTION_MODE=local` in `backend/.env` and install the `stellar` CLI plus `rustup target add wasm32-unknown-unknown`.
 
 ---
 
 ## Environment Variables
 
-### Root `.env` (Docker only)
+### Root `.env` (Docker)
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string |
-| `JWT_SECRET` | ✅ | JWT signing secret (min 32 chars) |
-| `SOROBAN_EXECUTION_MODE` | ✅ | Must be `local` for Docker |
-| `FRONTEND_URL` | — | Frontend base URL for OAuth redirects |
-| `GROQ_API_KEY` | — | Groq API key for AI chat |
-| `GITHUB_CLIENT_ID` | — | GitHub OAuth client ID |
-| `GITHUB_CLIENT_SECRET` | — | GitHub OAuth client secret |
-| `GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
-| `SOROBAN_SDK_VERSION` | — | soroban-sdk version for generated Cargo.toml |
-| `SOROBAN_NETWORK` | — | `testnet` or `mainnet` |
-| `SOROBAN_CLI_PATH` | — | stellar CLI binary name (default: `stellar`) |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `JWT_SECRET` | Yes | JWT signing secret (min 32 chars) |
+| `SOROBAN_EXECUTION_MODE` | Yes | Must be `local` for Docker |
+| `FRONTEND_URL` | Optional | Frontend base URL for OAuth redirects |
+| `GROQ_API_KEY` | Optional | Groq API key for AI chat and fix |
+| `GROQ_MODEL` | Optional | Groq model (default: `llama-3.1-8b-instant`) |
+| `GITHUB_CLIENT_ID` | Optional | GitHub OAuth client ID |
+| `GITHUB_CLIENT_SECRET` | Optional | GitHub OAuth client secret |
+| `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
+| `SOROBAN_SDK_VERSION` | Optional | soroban-sdk version for generated Cargo.toml |
+| `SOROBAN_NETWORK` | Optional | `testnet` or `mainnet` |
+| `SOROBAN_CLI_PATH` | Optional | Stellar CLI binary name (default: `stellar`) |
 
 See `.env.example` and `backend/.env.example` for all options.
 
@@ -236,66 +219,100 @@ See `.env.example` and `backend/.env.example` for all options.
 
 ## Features
 
+### Contract templates
+
+Create a new project from 8 ready-to-compile Soroban templates:
+
+| Template | Description |
+|---|---|
+| Blank Contract | Empty starting point |
+| Hello World | Store and return a greeting |
+| Token (SEP-41) | Fungible token with mint, burn, transfer |
+| NFT | Non-fungible tokens with metadata |
+| Voting | On-chain proposals and votes |
+| Escrow | Hold funds until conditions are met |
+| Multisig | Multi-signature approvals |
+| Counter | Simple increment/decrement/reset |
+
+Pick a template from the dashboard **New Project** modal. Files are seeded automatically.
+
 ### IDE
+
 - Monaco Editor with Rust syntax highlighting
-- Nested file explorer — edit `src/lib.rs`, `Cargo.toml`, and view compiled WASM
-- Output panel with real-time compile/test/deploy logs
-- AI Chat panel — powered by Groq, understands Soroban contracts
-- **Live collaboration** — multi-user editing, live cursors, presence bar
-- **Share** — invite editors or viewers via secure links
+- Nested file explorer for `src/lib.rs`, `Cargo.toml`, and compiled WASM
+- Terminal with streaming compile, test, deploy, and audit output
+- **Fix with AI** appears in the terminal when errors are present
+- **Explain** opens StellarAI chat with terminal and code context
+- **StellarAI chat** panel powered by Groq
+- Live collaboration with multi-user editing, live cursors, and presence bar
+- **Project settings** for rename, collaborators, invite links, and delete
 
-### GitHub Integration
+### Documentation
+
+Two doc sections built into the app:
+
+- **User Guide** (`/docs/guide`): Step-by-step help for new users (first contract, deploy, wallet, FAQ)
+- **Technical Reference** (`/docs`): Editor, compile, deploy, API reference, and more
+
+### GitHub integration
+
 - Sign in or connect with GitHub OAuth (`repo` scope)
-- **Import from GitHub** — pick a repo and load files into the IDE
-- **Push to GitHub** — commit message + push via GitHub REST API (no git CLI)
-- Linked projects show repo/branch in the IDE toolbar
+- **Import from GitHub** to load a repo into the IDE
+- **Push to GitHub** with a commit message via REST API (no git CLI)
+- Linked projects show repo and branch in the IDE toolbar
 
-### Compile
+### Compile and test
+
 - Compiles Soroban contracts to WASM (`wasm32-unknown-unknown`)
-- WASM artifact saved to project — no recompile needed for deploy
-- Cargo.toml editable from the browser
-
-### Test
-- Runs `cargo test` with `testutils` feature enabled
-- Full output streamed to the IDE output panel
+- WASM artifact saved to the project (no recompile needed for deploy)
+- `cargo test` with full output streamed to the terminal
 
 ### Deploy
-- 3-step guided flow: Generate Wallet → Fund → Deploy
-- Generates Stellar keypair in the browser (secret key never leaves the tab)
+
+- Guided flow: generate wallet or connect Freighter, fund, deploy
+- Browser-generated keypair option (secret stays in your tab)
 - One-click Testnet funding via Friendbot
-- Deploys using saved WASM — no recompile
+- Deploys using saved WASM
 - Returns Contract ID with links to Stellar Expert and Stellar Lab
 
-### Auth
-- Email/password registration and login
-- GitHub OAuth (login + repo access for import/push)
-- Google OAuth
-- JWT with configurable expiry
+### Audit
 
-### Collaboration
-- WebSocket rooms per project (`/collab/:project_id`)
-- Yjs CRDT conflict-free editing via `y-monaco`
-- Live cursors and awareness (user name + color)
-- Shared file tree sync across clients
+- Real [Scout](https://github.com/CoinFabrik/scout-soroban) static analysis in the sandbox
+- Streaming progress in the terminal
+- Audit Results panel with severity filters and jump-to-line
+- **Fix with AI** can address Scout findings
+
+### Auth and collaboration
+
+- Email/password registration and login
+- GitHub and Google OAuth
+- JWT with configurable expiry
+- WebSocket rooms per project with Yjs CRDT editing
 - Role-based access: **owner**, **editor**, **viewer** (read-only)
+- Invite links with editor or viewer roles
+- Manage collaborators from **Project Settings**
 
 ---
 
 ## OAuth Setup
 
 ### GitHub
+
 1. Go to GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
 2. Set callback URL: `http://localhost:8080/api/v1/auth/github/callback`
 3. Add to `.env`:
+
 ```env
 GITHUB_CLIENT_ID=your_client_id
 GITHUB_CLIENT_SECRET=your_client_secret
 ```
 
 ### Google
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
-2. Create OAuth 2.0 Client ID → set redirect URI: `http://localhost:8080/api/v1/auth/google/callback`
+2. Create OAuth 2.0 Client ID with redirect URI: `http://localhost:8080/api/v1/auth/google/callback`
 3. Add to `.env`:
+
 ```env
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
@@ -303,93 +320,77 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 
 ---
 
-## AI Chat Setup
+## AI Setup
 
-StellarAI uses [Groq](https://console.groq.com) for fast inference.
+StellarIDE uses [Groq](https://console.groq.com) for StellarAI chat and AI Fix.
 
 ```env
 GROQ_API_KEY=gsk_...
 GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-If not configured, the chat panel renders but shows a graceful unavailable message.
+| Feature | Where it lives |
+|---|---|
+| StellarAI chat | IDE toolbar **AI Chat** button |
+| Explain errors | Terminal **Explain** button (opens chat with context) |
+| Fix with AI | Terminal **Fix with AI** button (when errors exist) |
+
+If `GROQ_API_KEY` is not set, AI features show a clear unavailable message.
 
 ---
 
 ## API Reference
 
-All endpoints are prefixed with `/api/v1`.
+All REST endpoints are prefixed with `/api/v1`. Full reference: `/docs/api`.
 
-### Public
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-| POST | `/auth/register` | Create account |
-| POST | `/auth/login` | Login, returns JWT |
-| GET | `/auth/github` | Start GitHub OAuth |
-| GET | `/auth/github/callback` | GitHub OAuth callback |
-| GET | `/auth/google` | Start Google OAuth |
-| GET | `/auth/google/callback` | Google OAuth callback |
-| GET | `/auth/oauth/providers` | Which OAuth providers are configured |
-
-### Protected (Bearer JWT required)
+### Highlights
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/auth/me` | Current user |
-| GET | `/projects` | List projects |
-| POST | `/projects` | Create project |
-| GET | `/projects/:id` | Get project |
-| PUT | `/projects/:id` | Update project |
+| GET | `/templates` | List contract templates |
+| POST | `/projects` | Create project (optional `template_id`) |
+| PUT | `/projects/:id` | Update project name/description |
 | DELETE | `/projects/:id` | Delete project |
-| GET | `/projects/:id/files` | List project files |
-| POST | `/projects/:id/files` | Save file |
-| POST | `/projects/:id/compile` | Compile to WASM |
+| POST | `/projects/:id/compile` | Compile to WASM (SSE stream available) |
 | POST | `/projects/:id/test` | Run tests |
 | POST | `/projects/:id/deploy` | Deploy contract |
-| POST | `/projects/:id/audit` | Run audit checks |
-| POST | `/ai/chat` | AI chat |
-| GET | `/github/status` | GitHub connection status |
-| GET | `/github/repos` | List user GitHub repos |
-| POST | `/github/import` | Import repo into new project |
-| POST | `/projects/:id/github/push` | Push project files to GitHub |
-| GET | `/projects/:id/collaborators` | List collaborators |
+| POST | `/projects/:id/audit` | Run Scout audit |
+| POST | `/projects/:id/ai-fix` | AI fix proposal |
+| POST | `/projects/:id/ai-explain` | AI contract explanation |
+| POST | `/projects/:id/ai/chat` | Project-scoped AI chat |
 | POST | `/projects/:id/collaborators/invite` | Generate invite link |
-| POST | `/projects/:id/collaborators/join` | Accept invite token |
+| PUT | `/projects/:id/collaborators/:user_id` | Update collaborator role |
+| DELETE | `/projects/:id/collaborators/:user_id` | Remove collaborator |
 
 ### WebSocket
 
 | Path | Description |
 |---|---|
 | `GET /collab/:project_id?token=&file=` | Per-file Yjs doc + awareness sync |
-| `GET /collab/:project_id/project?token=` | File tree updates + project presence |
+| `GET /collab/:project_id/project?token=` | File tree, terminal, deploy lock, audit sync |
 
 ---
 
 ## Contributing
 
-Contributions are welcome and appreciated.
+Contributions are welcome.
 
 ```bash
-# 1. Fork the repo
-# 2. Create your feature branch
+git clone https://github.com/Alouzious/StellarIDE.git
 git checkout -b feat/your-feature
-
-# 3. Make your changes and commit
+# make changes
 git commit -m "feat: add your feature"
-
-# 4. Push and open a Pull Request
 git push origin feat/your-feature
 ```
 
-**Good first issues:**
-- Freighter wallet signing (replace raw secret key flow)
-- Contract templates library
-- Scout audit integration
-- Test coverage improvements
+Open a Pull Request on GitHub. For large changes, open an issue first so we can discuss the approach.
 
-Please open an issue before starting large changes so we can discuss the approach.
+**Ideas for contributors:**
+
+- Additional contract templates
+- Mainnet deploy safeguards
+- Test coverage improvements
+- Documentation translations
 
 ---
 
@@ -397,27 +398,23 @@ Please open an issue before starting large changes so we can discuss the approac
 
 | Feature | Status |
 |---|---|
-| Monaco editor | ✅ |
-| JWT Auth (register/login) | ✅ |
-| GitHub OAuth | ✅ |
-| Google OAuth | ✅ |
-| Project & file management | ✅ |
-| Cargo.toml editing from browser | ✅ |
-| Compile to WASM | ✅ |
-| Run tests | ✅ |
-| Deploy (generated wallet + Friendbot) | ✅ |
-| WASM saved to DB — no recompile on deploy | ✅ |
-| AI chat assistant (Groq) | ✅ |
-| AI fix + explain errors | ✅ |
-| AI markdown rendering with syntax highlighting | ✅ |
-| Static audit checks | ✅ |
-| GitHub import & push | ✅ |
-| Real-time collaboration (WebSocket + Yjs) | ✅ |
-| Live cursors & presence | ✅ |
-| Share links (editor/viewer roles) | ✅ |
-| Freighter wallet signing | 🔜 |
-| Contract templates library | 🔜 |
-| Scout audit integration | 🔜 |
+| Monaco editor | Done |
+| JWT auth (register/login) | Done |
+| GitHub + Google OAuth | Done |
+| Project and file management | Done |
+| Contract templates library (8 templates) | Done |
+| Compile, test, deploy | Done |
+| Freighter / Wallets Kit signing | Done |
+| Scout audit integration | Done |
+| AI chat (Groq) | Done |
+| AI fix + explain | Done |
+| GitHub import and push | Done |
+| Real-time collaboration | Done |
+| Project settings page | Done |
+| User guide docs (`/docs/guide`) | Done |
+| Technical docs (`/docs`) | Done |
+| Mainnet deploy wizard improvements | Planned |
+| Contract verification on Stellar Expert | Planned |
 
 ---
 
@@ -428,5 +425,9 @@ MIT © StellarIDE contributors
 ---
 
 <div align="center">
-Built with ❤️ for the Stellar ecosystem
+
+Built with care for the Stellar ecosystem
+
+[Website](https://stellar-ide-ecru.vercel.app) · [User Guide](https://stellar-ide-ecru.vercel.app/docs/guide) · [GitHub](https://github.com/Alouzious/StellarIDE)
+
 </div>
