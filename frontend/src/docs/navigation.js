@@ -5,6 +5,7 @@ export const GUIDE_NAV = [
   { path: '/docs/guide/using-editor', slug: 'using-editor', title: 'Using the Editor', editFile: 'guide/using-editor.js' },
   { path: '/docs/guide/compile-errors', slug: 'compile-errors', title: 'Compile Errors', editFile: 'guide/compile-errors.js' },
   { path: '/docs/guide/deploy-testnet', slug: 'deploy-testnet', title: 'Deploy to Testnet', editFile: 'guide/deploy-testnet.js' },
+  { path: '/docs/guide/deploy-mainnet', slug: 'deploy-mainnet', title: 'Deploy to Mainnet', editFile: 'guide/deploy-mainnet.js' },
   { path: '/docs/guide/connect-wallet', slug: 'connect-wallet', title: 'Connect Wallet', editFile: 'guide/connect-wallet.js' },
   { path: '/docs/guide/invite-team', slug: 'invite-team', title: 'Invite Team', editFile: 'guide/invite-team.js' },
   { path: '/docs/guide/import-github', slug: 'import-github', title: 'Import from GitHub', editFile: 'guide/import-github.js' },

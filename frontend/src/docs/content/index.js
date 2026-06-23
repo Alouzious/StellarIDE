@@ -4,6 +4,7 @@ import firstContract from './guide/first-contract'
 import usingEditor from './guide/using-editor'
 import compileErrors from './guide/compile-errors'
 import deployTestnet from './guide/deploy-testnet'
+import deployMainnet from './guide/deploy-mainnet'
 import connectWallet from './guide/connect-wallet'
 import inviteTeam from './guide/invite-team'
 import importGithub from './guide/import-github'
@@ -28,6 +29,7 @@ const CONTENT_BY_PATH = {
   '/docs/guide/using-editor': usingEditor,
   '/docs/guide/compile-errors': compileErrors,
   '/docs/guide/deploy-testnet': deployTestnet,
+  '/docs/guide/deploy-mainnet': deployMainnet,
   '/docs/guide/connect-wallet': connectWallet,
   '/docs/guide/invite-team': inviteTeam,
   '/docs/guide/import-github': importGithub,

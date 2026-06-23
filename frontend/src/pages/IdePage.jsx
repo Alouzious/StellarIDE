@@ -30,6 +30,13 @@ import AiFixPanel from '../components/AiFixPanel'
 import PresenceBar from '../components/PresenceBar'
 import LinkGitHubModal from '../components/LinkGitHubModal'
 import PushModal from '../components/PushModal'
+import MainnetDeployModal from '../components/MainnetDeployModal'
+import NetworkSwitchModal from '../components/NetworkSwitchModal'
+import {
+  buildMainnetChecklist,
+  mainnetDeployReady,
+  MAINNET_MIN_XLM,
+} from '../lib/mainnetDeploy'
 import api, { getWsBaseUrl } from '../services/api'
 import { buildExplainChatMessage } from '../lib/aiContext'
 import { ToastContainer } from '../components/ui/Toast'
@@ -264,26 +271,49 @@ function truncateAddress(addr) {
 
 function NetworkToggle() {
   const { network, setNetwork } = useWalletStore()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const handleSelect = (id) => {
+    if (id === network) return
+    if (id === 'mainnet') {
+      setConfirmOpen(true)
+      return
+    }
+    setNetwork(id)
+  }
+
   return (
-    <div className="flex items-center rounded-md border border-stellar-border overflow-hidden text-xs font-medium">
-      {[
-        { id: 'testnet', label: 'Testnet' },
-        { id: 'mainnet', label: 'Mainnet' },
-      ].map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setNetwork(id)}
-          className={`px-2.5 py-1.5 transition-colors ${
-            network === id
-              ? 'bg-stellar-accent/20 text-stellar-accent'
-              : 'bg-stellar-surface text-stellar-muted hover:text-white'
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <>
+      <div className="flex items-center rounded-md border border-stellar-border overflow-hidden text-xs font-medium">
+        {[
+          { id: 'testnet', label: 'Testnet' },
+          { id: 'mainnet', label: 'Mainnet' },
+        ].map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => handleSelect(id)}
+            className={`px-2.5 py-1.5 transition-colors ${
+              network === id
+                ? id === 'mainnet'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-stellar-accent/20 text-stellar-accent'
+                : 'bg-stellar-surface text-stellar-muted hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <NetworkSwitchModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setNetwork('mainnet')
+          setConfirmOpen(false)
+        }}
+      />
+    </>
   )
 }
 
@@ -293,6 +323,7 @@ function DeployPanel({ onClose, projectId }) {
     generateWallet, fundWallet, checkBalance, setWalletBalance,
     runDeploy, deployStatus, clearLog,
     verifyContract, verifyStatus, verifyResult, verifyError, clearVerifyResult,
+    testStatus, auditStatus,
   } = useIdeStore()
   const {
     connectedAddress,
@@ -316,17 +347,30 @@ function DeployPanel({ onClose, projectId }) {
   const [checkingBal, setCheckingBal] = useState(false)
   const [checkingConnectedBal, setCheckingConnectedBal] = useState(false)
   const [verifyContractId, setVerifyContractId] = useState('')
+  const [mainnetModalOpen, setMainnetModalOpen] = useState(false)
 
   const wasmFile = files.find((f) => f.file_path?.endsWith('.wasm'))
+  const isMainnet = network === 'mainnet'
   const step1Done = !!generatedWallet
   const step2Done = walletFunded
   const step3Ready = step1Done && step2Done && !!wasmFile
   const usingConnectedWallet = !!connectedAddress
   const walletName = walletLabel()
   const networkOk = networkMatchesWallet()
-  const deployReady = !!wasmFile && (
-    (usingConnectedWallet && networkOk) ||
-    (!usingConnectedWallet && step3Ready)
+  const connectedBalNum = parseFloat(connectedBalance || '0')
+  const mainnetChecklist = buildMainnetChecklist({
+    wasmFile,
+    connectedAddress,
+    networkOk,
+    balance: connectedBalance,
+    testStatus,
+    auditStatus,
+  })
+  const mainnetReady = !isMainnet || mainnetDeployReady(mainnetChecklist)
+  const deployReady = !!wasmFile && mainnetReady && (
+    isMainnet
+      ? usingConnectedWallet && networkOk && connectedBalNum >= MAINNET_MIN_XLM
+      : (usingConnectedWallet && networkOk) || (!usingConnectedWallet && step3Ready)
   )
   const isDeploying = deployStatus === 'running' || deployStatus === 'signing'
   const isVerifying = verifyStatus === 'running'
@@ -393,6 +437,14 @@ function DeployPanel({ onClose, projectId }) {
 
   const handleDeploy = async () => {
     if (!deployReady || isDeploying) return
+    if (isMainnet) {
+      setMainnetModalOpen(true)
+      return
+    }
+    await executeDeploy()
+  }
+
+  const executeDeploy = async () => {
     clearLog()
     setLastDeployContractId(null)
     clearVerifyResult()
@@ -415,6 +467,7 @@ function DeployPanel({ onClose, projectId }) {
       } else if (!result.success) {
         toast.error(result.error || 'Deploy failed')
       }
+      setMainnetModalOpen(false)
       return
     }
 
@@ -425,6 +478,7 @@ function DeployPanel({ onClose, projectId }) {
       useExternalWallet: false,
     })
     if (result?.contractId) setLastDeployContractId(result.contractId)
+    setMainnetModalOpen(false)
   }
 
   const handleVerify = async () => {
@@ -446,7 +500,16 @@ function DeployPanel({ onClose, projectId }) {
     return step3Ready ? 'active' : 'locked'
   }
 
-  const connectedBalNum = parseFloat(connectedBalance || '0')
+  const mainnetStepState = (n) => {
+    if (n === 1) return connectedAddress ? 'done' : 'active'
+    if (n === 2) {
+      if (!connectedAddress) return 'locked'
+      return mainnetDeployReady(mainnetChecklist) ? 'done' : 'active'
+    }
+    if (!connectedAddress || !mainnetDeployReady(mainnetChecklist)) return 'locked'
+    return deployReady ? 'active' : 'locked'
+  }
+
   const networkBadgeClass = network === 'mainnet'
     ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
     : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
@@ -464,11 +527,23 @@ function DeployPanel({ onClose, projectId }) {
       </div>
 
       <div className="flex items-center justify-between px-5 py-3 border-b border-stellar-border flex-shrink-0">
-        <StepBadge n={1} label="Generate" state={stepState(1)} />
-        <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
-        <StepBadge n={2} label="Fund" state={stepState(2)} />
-        <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
-        <StepBadge n={3} label="Deploy" state={stepState(3)} />
+        {isMainnet ? (
+          <>
+            <StepBadge n={1} label="Connect" state={mainnetStepState(1)} />
+            <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
+            <StepBadge n={2} label="Review" state={mainnetStepState(2)} />
+            <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
+            <StepBadge n={3} label="Deploy" state={mainnetStepState(3)} />
+          </>
+        ) : (
+          <>
+            <StepBadge n={1} label="Generate" state={stepState(1)} />
+            <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
+            <StepBadge n={2} label="Fund" state={stepState(2)} />
+            <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
+            <StepBadge n={3} label="Deploy" state={stepState(3)} />
+          </>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -494,7 +569,9 @@ function DeployPanel({ onClose, projectId }) {
                   : <><Wallet className="w-4 h-4" /> Connect Wallet</>}
               </button>
               <p className="text-xs text-stellar-muted text-center leading-relaxed">
-                Sign with Freighter, Albedo, xBull, Ledger, and more.
+                {isMainnet
+                  ? 'Mainnet deploys require a connected wallet with real XLM.'
+                  : 'Sign with Freighter, Albedo, xBull, Ledger, and more.'}
               </p>
             </>
           ) : (
@@ -547,6 +624,15 @@ function DeployPanel({ onClose, projectId }) {
                 </div>
               </div>
 
+              {isMainnet && connectedBalNum < MAINNET_MIN_XLM && (
+                <div className="flex gap-2 px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-200 leading-relaxed">
+                    Keep at least {MAINNET_MIN_XLM} XLM in this wallet for deploy fees.
+                  </p>
+                </div>
+              )}
+
               {network === 'testnet' && connectedBalNum === 0 && (
                 <button
                   type="button"
@@ -563,6 +649,16 @@ function DeployPanel({ onClose, projectId }) {
           )}
         </div>
 
+        {isMainnet ? (
+          <div className="flex gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-200 leading-relaxed">
+              Mainnet uses real XLM. Browser-generated wallets and Friendbot are Testnet only.
+              Connect Freighter or another wallet funded on Mainnet.
+            </p>
+          </div>
+        ) : (
+          <>
         <div className="relative py-1">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-stellar-border/50" />
@@ -679,6 +775,8 @@ function DeployPanel({ onClose, projectId }) {
         )}
 
         <div className="border-t border-stellar-border/50" />
+          </>
+        )}
 
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-stellar-border bg-stellar-surface">
           <Package className={`w-4 h-4 flex-shrink-0 ${wasmFile ? 'text-green-400' : 'text-stellar-border'}`} />
@@ -691,12 +789,24 @@ function DeployPanel({ onClose, projectId }) {
           {wasmFile && <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />}
         </div>
 
-        {connectedAddress && network === 'mainnet' && (
-          <div className="flex gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
-            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-200 leading-relaxed">
-              You are deploying to <strong>Mainnet</strong>. This uses real XLM and cannot be undone. Double-check your contract before signing.
+        {isMainnet && connectedAddress && (
+          <div className="rounded-lg border border-stellar-border bg-stellar-surface p-3 space-y-2">
+            <p className="text-xs font-semibold text-stellar-heading uppercase tracking-wider">
+              Pre-deploy review
             </p>
+            <ul className="space-y-1.5">
+              {mainnetChecklist.map((item) => (
+                <li key={item.id} className="flex items-start gap-2 text-xs">
+                  {item.ok
+                    ? <CheckCircle className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
+                    : <AlertCircle className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${item.required ? 'text-red-400' : 'text-amber-400'}`} />}
+                  <span className={item.ok ? 'text-stellar-text' : 'text-stellar-muted'}>
+                    {item.label}
+                    {!item.required && !item.ok && <span className="text-stellar-border"> (recommended)</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -715,7 +825,9 @@ function DeployPanel({ onClose, projectId }) {
           disabled={!deployReady || isDeploying}
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
             deployReady
-              ? 'bg-stellar-accent hover:bg-stellar-accent-hover text-white'
+              ? isMainnet
+                ? 'bg-amber-500 hover:bg-amber-400 text-black'
+                : 'bg-stellar-accent hover:bg-stellar-accent-hover text-white'
               : 'bg-stellar-surface border border-stellar-border text-stellar-border cursor-not-allowed opacity-50'
           }`}
         >
@@ -723,6 +835,8 @@ function DeployPanel({ onClose, projectId }) {
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Waiting for wallet signature…</>
             : deployStatus === 'running'
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Deploying…</>
+            : deployReady && isMainnet
+            ? <><Rocket className="w-4 h-4" /> Review and deploy to Mainnet</>
             : deployReady && usingConnectedWallet
             ? <><Wallet className="w-4 h-4" /> Deploy with {walletName}</>
             : deployReady
@@ -733,8 +847,12 @@ function DeployPanel({ onClose, projectId }) {
         {!deployReady && (
           <div className="text-xs text-stellar-border space-y-1 px-1">
             {!wasmFile && <p>Compile your contract first</p>}
-            {wasmFile && !usingConnectedWallet && !step1Done && <p>Connect a wallet or generate one below</p>}
-            {wasmFile && !usingConnectedWallet && step1Done && !step2Done && <p>Fund your generated wallet via Friendbot</p>}
+            {isMainnet && wasmFile && !usingConnectedWallet && <p>Connect a Mainnet-funded wallet to continue</p>}
+            {isMainnet && wasmFile && usingConnectedWallet && connectedBalNum < MAINNET_MIN_XLM && (
+              <p>Fund your wallet with at least {MAINNET_MIN_XLM} XLM for deploy fees</p>
+            )}
+            {!isMainnet && wasmFile && !usingConnectedWallet && !step1Done && <p>Connect a wallet or generate one below</p>}
+            {!isMainnet && wasmFile && !usingConnectedWallet && step1Done && !step2Done && <p>Fund your generated wallet via Friendbot</p>}
             {wasmFile && usingConnectedWallet && !networkOk && <p>Fix network mismatch before deploying</p>}
           </div>
         )}
@@ -893,6 +1011,17 @@ function DeployPanel({ onClose, projectId }) {
           </div>
         )}
       </div>
+
+      <MainnetDeployModal
+        open={mainnetModalOpen}
+        onClose={() => setMainnetModalOpen(false)}
+        onConfirm={executeDeploy}
+        checklist={mainnetChecklist}
+        walletAddress={connectedAddress}
+        balance={connectedBalance}
+        wasmFileName={wasmFile?.file_path}
+        deploying={isDeploying}
+      />
     </div>
   )
 }

@@ -32,6 +32,7 @@ export default function App() {
           <Route path="guide/using-editor" element={<DocsContentPage />} />
           <Route path="guide/compile-errors" element={<DocsContentPage />} />
           <Route path="guide/deploy-testnet" element={<DocsContentPage />} />
+          <Route path="guide/deploy-mainnet" element={<DocsContentPage />} />
           <Route path="guide/connect-wallet" element={<DocsContentPage />} />
           <Route path="guide/invite-team" element={<DocsContentPage />} />
           <Route path="guide/import-github" element={<DocsContentPage />} />

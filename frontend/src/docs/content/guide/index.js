@@ -23,7 +23,7 @@ export default {
 Start with [Your First Contract](/docs/guide/first-contract), then read [Using the Editor](/docs/guide/using-editor).
 
 **I have a contract to deploy**
-Jump to [Deploy to Testnet](/docs/guide/deploy-testnet) and [Connect Wallet](/docs/guide/connect-wallet).
+Start with [Deploy to Testnet](/docs/guide/deploy-testnet), then [Deploy to Mainnet](/docs/guide/deploy-mainnet) when ready for production. See [Connect Wallet](/docs/guide/connect-wallet).
 
 **I want to collaborate with my team**
 Read [Invite Team](/docs/guide/invite-team) and [Import from GitHub](/docs/guide/import-github).`,

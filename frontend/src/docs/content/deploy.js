@@ -45,7 +45,18 @@ On success the terminal shows the contract ID and links to Stellar Expert and St
       title: 'Testnet funding',
       body: `For Testnet, fund a generated or connected wallet with Friendbot from the deploy panel.
 
-Mainnet deployments require a wallet with sufficient XLM for fees. StellarIDE does not hold your keys on the server.`,
+Mainnet deployments require a connected wallet with sufficient XLM for fees. StellarIDE does not hold your keys on the server.`,
+    },
+    {
+      id: 'mainnet-wizard',
+      title: 'Mainnet deploy wizard',
+      body: `When the network toggle is set to Mainnet, the deploy panel uses a dedicated wizard:
+
+- **Connect → Review → Deploy** step flow
+- Requires an external wallet (no Friendbot or browser-generated keypair)
+- Pre-deploy checklist: WASM compiled, wallet connected, network match, minimum balance
+- Recommended: tests and Scout audit completed in the session
+- Confirmation modal: acknowledge risks and type \`DEPLOY\` before signing`,
     },
     {
       id: 'collab-lock',
