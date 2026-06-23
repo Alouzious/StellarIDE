@@ -274,6 +274,8 @@ Two doc sections built into the app:
 - One-click Testnet funding via Friendbot
 - Deploys using saved WASM
 - Returns Contract ID with links to Stellar Expert and Stellar Lab
+- **Verify on Stellar Expert**: compares local WASM SHA256 with on-chain bytecode via `stellar contract fetch`
+- Links to Stellar Expert and Stellar Lab; GitHub-linked projects get guidance for full source validation via soroban-build-workflow
 
 ### Audit
 
@@ -414,7 +416,7 @@ Open a Pull Request on GitHub. For large changes, open an issue first so we can 
 | User guide docs (`/docs/guide`) | Done |
 | Technical docs (`/docs`) | Done |
 | Mainnet deploy wizard improvements | Planned |
-| Contract verification on Stellar Expert | Planned |
+| Contract verification on Stellar Expert | Done |
 
 ---
 

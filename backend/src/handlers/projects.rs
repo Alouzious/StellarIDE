@@ -855,7 +855,7 @@ async fn ensure_project_access(user_id: Uuid, project_id: Uuid, state: &AppState
     Ok(())
 }
 
-async fn ensure_editor_access(user_id: Uuid, project_id: Uuid, state: &AppState) -> Result<()> {
+pub(crate) async fn ensure_editor_access(user_id: Uuid, project_id: Uuid, state: &AppState) -> Result<()> {
     let role = resolve_collab_role(state, project_id, user_id).await?;
     if role == "none" || role == "viewer" {
         return Err(AppError::Forbidden);
@@ -863,7 +863,7 @@ async fn ensure_editor_access(user_id: Uuid, project_id: Uuid, state: &AppState)
     Ok(())
 }
 
-async fn load_project_files(project_id: Uuid, state: &AppState) -> Result<Vec<ProjectFile>> {
+pub(crate) async fn load_project_files(project_id: Uuid, state: &AppState) -> Result<Vec<ProjectFile>> {
     let files = sqlx::query_as::<_, ProjectFile>(
         "SELECT * FROM project_files WHERE project_id = $1 ORDER BY file_path",
     )
@@ -873,7 +873,7 @@ async fn load_project_files(project_id: Uuid, state: &AppState) -> Result<Vec<Pr
     Ok(files)
 }
 
-async fn load_project(project_id: Uuid, state: &AppState) -> Result<Project> {
+pub(crate) async fn load_project(project_id: Uuid, state: &AppState) -> Result<Project> {
     sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
         .bind(project_id)
         .fetch_optional(&state.db)

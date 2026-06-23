@@ -35,7 +35,9 @@ The terminal shows progress. On success you get a **Contract ID**. Save it; you 
     {
       id: 'verify',
       title: 'Verify deployment',
-      body: `Use the Stellar Expert link from the deploy panel to confirm the contract exists on Testnet.
+      body: `After deploy, use **Verify on Stellar Expert** in the deploy panel. StellarIDE compares your compiled WASM with the bytecode on chain and shows a match or mismatch.
+
+Use the Stellar Expert link to inspect the contract. For full source validation on Stellar Expert (not just bytecode), link GitHub and follow the [soroban-build-workflow](https://github.com/stellar-expert/soroban-build-workflow).
 
 Mainnet deploy works the same way but uses real XLM and no Friendbot.`,
     },

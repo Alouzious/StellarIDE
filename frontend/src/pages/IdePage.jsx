@@ -292,6 +292,7 @@ function DeployPanel({ onClose, projectId }) {
     files, generatedWallet, walletBalance, walletFunded,
     generateWallet, fundWallet, checkBalance, setWalletBalance,
     runDeploy, deployStatus, clearLog,
+    verifyContract, verifyStatus, verifyResult, verifyError, clearVerifyResult,
   } = useIdeStore()
   const {
     connectedAddress,
@@ -314,6 +315,7 @@ function DeployPanel({ onClose, projectId }) {
   const [fundingConnected, setFundingConnected] = useState(false)
   const [checkingBal, setCheckingBal] = useState(false)
   const [checkingConnectedBal, setCheckingConnectedBal] = useState(false)
+  const [verifyContractId, setVerifyContractId] = useState('')
 
   const wasmFile = files.find((f) => f.file_path?.endsWith('.wasm'))
   const step1Done = !!generatedWallet
@@ -327,6 +329,12 @@ function DeployPanel({ onClose, projectId }) {
     (!usingConnectedWallet && step3Ready)
   )
   const isDeploying = deployStatus === 'running' || deployStatus === 'signing'
+  const isVerifying = verifyStatus === 'running'
+  const verifyReady = !!wasmFile && verifyContractId.trim().length > 20
+
+  useEffect(() => {
+    if (lastDeployContractId) setVerifyContractId(lastDeployContractId)
+  }, [lastDeployContractId])
 
   const copy = (text) => {
     navigator.clipboard.writeText(text)
@@ -387,6 +395,8 @@ function DeployPanel({ onClose, projectId }) {
     if (!deployReady || isDeploying) return
     clearLog()
     setLastDeployContractId(null)
+    clearVerifyResult()
+    setVerifyContractId('')
 
     if (usingConnectedWallet) {
       const kit = getWalletKit()
@@ -416,6 +426,18 @@ function DeployPanel({ onClose, projectId }) {
     })
     if (result?.contractId) setLastDeployContractId(result.contractId)
   }
+
+  const handleVerify = async () => {
+    if (!verifyReady || isVerifying) return
+    const result = await verifyContract(projectId, verifyContractId, network)
+    if (result.success) {
+      toast.success(result.result?.bytecode_match ? 'Bytecode verified' : 'Bytecode mismatch')
+    } else {
+      toast.error(result.error || 'Verification failed')
+    }
+  }
+
+  const truncateHash = (hash) => (hash ? `${hash.slice(0, 8)}…${hash.slice(-8)}` : '')
 
   const stepState = (n) => {
     if (usingConnectedWallet) return 'done'
@@ -759,6 +781,115 @@ function DeployPanel({ onClose, projectId }) {
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
+          </div>
+        )}
+
+        {wasmFile && (
+          <div className="space-y-3 pt-1 border-t border-stellar-border/50">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-stellar-accent flex-shrink-0" />
+              <span className="text-xs font-semibold text-stellar-heading uppercase tracking-wider">
+                Verify on Stellar Expert
+              </span>
+            </div>
+            <p className="text-xs text-stellar-muted leading-relaxed">
+              Compare your compiled WASM with the bytecode deployed on chain.
+            </p>
+            <div className="space-y-1">
+              <span className="text-[10px] text-stellar-border uppercase tracking-wider">Contract ID</span>
+              <input
+                type="text"
+                value={verifyContractId}
+                onChange={(e) => {
+                  setVerifyContractId(e.target.value)
+                  if (verifyResult || verifyError) clearVerifyResult()
+                }}
+                placeholder="C…"
+                className="w-full px-3 py-2 text-xs font-mono bg-stellar-surface border border-stellar-border rounded-lg text-stellar-text placeholder:text-stellar-border focus:outline-none focus:border-stellar-accent/50"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleVerify}
+              disabled={!verifyReady || isVerifying}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all bg-stellar-surface border border-stellar-accent/40 text-stellar-accent hover:bg-stellar-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isVerifying
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
+                : <><Shield className="w-4 h-4" /> Verify bytecode</>}
+            </button>
+
+            {verifyError && (
+              <div className="flex gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-200 leading-relaxed">{verifyError}</p>
+              </div>
+            )}
+
+            {verifyResult && (
+              <div className={`rounded-lg p-3 space-y-2 border ${
+                verifyResult.bytecode_match
+                  ? 'bg-green-500/10 border-green-500/30'
+                  : 'bg-amber-500/10 border-amber-500/30'
+              }`}>
+                <div className={`flex items-center gap-1.5 text-xs font-semibold ${
+                  verifyResult.bytecode_match ? 'text-green-400' : 'text-amber-300'
+                }`}>
+                  {verifyResult.bytecode_match
+                    ? <><CheckCircle className="w-3.5 h-3.5" /> Bytecode match</>
+                    : <><AlertCircle className="w-3.5 h-3.5" /> Bytecode mismatch</>}
+                </div>
+                <p className="text-xs text-stellar-muted leading-relaxed">{verifyResult.message}</p>
+                <div className="space-y-1 text-[11px] font-mono">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-stellar-border">Local</span>
+                    <span className="text-stellar-text truncate" title={verifyResult.local_wasm_hash}>
+                      {truncateHash(verifyResult.local_wasm_hash)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-stellar-border">On chain</span>
+                    <span className="text-stellar-text truncate" title={verifyResult.chain_wasm_hash}>
+                      {truncateHash(verifyResult.chain_wasm_hash)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <a
+                    href={verifyResult.stellar_expert_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-stellar-accent hover:underline"
+                  >
+                    Stellar Expert
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <a
+                    href={verifyResult.stellar_lab_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-stellar-accent hover:underline"
+                  >
+                    Stellar Lab
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                {verifyResult.github_linked && (
+                  <p className="text-xs text-stellar-muted leading-relaxed pt-1">
+                    For full source validation on Stellar Expert, use the{' '}
+                    <a
+                      href={verifyResult.github_workflow_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-stellar-accent hover:underline"
+                    >
+                      soroban-build-workflow
+                    </a>
+                    {' '}with {verifyResult.github_repo}.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

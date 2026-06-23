@@ -56,6 +56,7 @@ POST /api/v1/projects/:id/test
 POST /api/v1/projects/:id/test/stream
 POST /api/v1/projects/:id/deploy
 POST /api/v1/projects/:id/deploy/stream
+POST /api/v1/projects/:id/verify
 POST /api/v1/projects/:id/audit
 POST /api/v1/projects/:id/audit/stream
 \`\`\`

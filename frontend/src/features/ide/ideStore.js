@@ -86,6 +86,9 @@ const useIdeStore = create((set, get) => ({
   compileStatus: 'idle',
   testStatus: 'idle',
   deployStatus: 'idle',
+  verifyStatus: 'idle',
+  verifyResult: null,
+  verifyError: null,
   auditStatus: 'idle',
   auditFindings: [],
   auditRiskLevel: 'CLEAN',
@@ -549,6 +552,27 @@ const useIdeStore = create((set, get) => ({
       return { success: false, error: err.message }
     } finally {
       set({ streamAbortController: null, terminalOperation: null })
+    }
+  },
+
+  clearVerifyResult: () => set({ verifyStatus: 'idle', verifyResult: null, verifyError: null }),
+
+  verifyContract: async (projectId, contractId, network = 'testnet') => {
+    if (!projectId || !contractId?.trim()) {
+      return { success: false, error: 'Contract ID is required' }
+    }
+    set({ verifyStatus: 'running', verifyResult: null, verifyError: null })
+    try {
+      const { data } = await api.post(`/projects/${projectId}/verify`, {
+        contract_id: contractId.trim(),
+        network,
+      })
+      set({ verifyStatus: 'success', verifyResult: data })
+      return { success: true, result: data }
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Verification failed'
+      set({ verifyStatus: 'error', verifyError: msg })
+      return { success: false, error: msg }
     }
   },
 

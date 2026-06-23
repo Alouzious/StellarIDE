@@ -81,6 +81,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/projects/:id", get(handlers::projects::get_project))
         .route("/projects/:id", put(handlers::projects::update_project))
         .route("/projects/:id", delete(handlers::projects::delete_project))
+        .route(
+            "/projects/:id/verify",
+            post(handlers::verification::verify_contract),
+        )
         .route("/projects/:id/files", get(handlers::projects::list_files))
         .route("/projects/:id/files", post(handlers::projects::save_file))
         .route(

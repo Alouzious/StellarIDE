@@ -7,3 +7,4 @@ pub mod health;
 pub mod oauth;
 pub mod projects;
 pub mod templates;
+pub mod verification;
