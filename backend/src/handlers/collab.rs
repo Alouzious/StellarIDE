@@ -8,6 +8,8 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
+use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::{
@@ -22,11 +24,13 @@ use crate::{
 pub struct CollabQuery {
     pub token: String,
     pub file: Option<String>,
+    pub conn_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectCollabQuery {
     pub token: String,
+    pub conn_id: Option<String>,
 }
 
 pub async fn collab_ws_handler(
@@ -48,6 +52,8 @@ pub async fn collab_ws_handler(
         .filter(|f| !f.is_empty())
         .unwrap_or_else(|| "src/lib.rs".to_string());
 
+    let connection_id = parse_connection_id(query.conn_id.as_deref());
+
     let user = sqlx::query_as::<_, crate::models::user::User>(
         "SELECT * FROM users WHERE id = $1",
     )
@@ -57,8 +63,6 @@ pub async fn collab_ws_handler(
     .ok_or(AppError::Unauthorized)?;
 
     let initial_content = load_file_content(&state, project_id, &file_path).await?;
-    let initial_doc = BASE64.encode(initial_content.as_bytes());
-
     let name = user.email.split('@').next().unwrap_or("user").to_string();
     let color = color_for_user(claims.sub);
 
@@ -68,11 +72,12 @@ pub async fn collab_ws_handler(
             state,
             project_id,
             file_path,
+            connection_id,
             claims.sub,
             name,
             color,
             role,
-            initial_doc,
+            initial_content,
         )
     }))
 }
@@ -91,6 +96,8 @@ pub async fn project_collab_ws_handler(
         return Err(AppError::Forbidden);
     }
 
+    let connection_id = parse_connection_id(query.conn_id.as_deref());
+
     let user = sqlx::query_as::<_, crate::models::user::User>(
         "SELECT * FROM users WHERE id = $1",
     )
@@ -103,8 +110,22 @@ pub async fn project_collab_ws_handler(
     let color = color_for_user(claims.sub);
 
     Ok(ws.on_upgrade(move |socket| {
-        handle_project_collab_socket(socket, state, project_id, claims.sub, name, color, role)
+        handle_project_collab_socket(
+            socket,
+            state,
+            project_id,
+            connection_id,
+            claims.sub,
+            name,
+            color,
+            role,
+        )
     }))
+}
+
+fn parse_connection_id(raw: Option<&str>) -> Uuid {
+    raw.and_then(|s| Uuid::parse_str(s).ok())
+        .unwrap_or_else(Uuid::new_v4)
 }
 
 async fn handle_collab_socket(
@@ -112,11 +133,12 @@ async fn handle_collab_socket(
     state: AppState,
     project_id: Uuid,
     file_path: String,
+    connection_id: Uuid,
     user_id: Uuid,
     name: String,
     color: String,
     role: String,
-    initial_doc_b64: String,
+    initial_content: String,
 ) {
     let collab = state.collab.clone();
     let room_key = RoomKey {
@@ -124,16 +146,15 @@ async fn handle_collab_socket(
         file_path: file_path.clone(),
     };
 
-    let initial_bytes = BASE64
-        .decode(&initial_doc_b64)
-        .unwrap_or_default();
-    let room = collab.get_or_create_room(room_key.clone(), initial_bytes);
+    let room = collab.get_or_create_room(room_key.clone(), &initial_content);
+    room.member_join();
 
     {
         let mut presence = room.presence.write().await;
         presence.insert(
-            user_id,
+            connection_id,
             PresenceUser {
+                connection_id,
                 user_id,
                 name: name.clone(),
                 color: color.clone(),
@@ -143,6 +164,7 @@ async fn handle_collab_socket(
     }
 
     let join_msg = CollabMessage::Join {
+        connection_id,
         user_id,
         name: name.clone(),
         color: color.clone(),
@@ -154,27 +176,28 @@ async fn handle_collab_socket(
     let mut rx = room.subscribe();
     let (mut sender, mut receiver) = socket.split();
 
-    // Send current doc state to joining client
-    let doc_state = room.doc_state.read().await.clone();
-    if !doc_state.is_empty() {
+    // Late joiners get the full merged Yjs state, not the last incremental blob.
+    let full_state = room.encode_full_state();
+    if !full_state.is_empty() && !room.ytext_is_empty() {
         let doc_msg = CollabMessage::DocUpdate {
             user_id: Uuid::nil(),
-            data: BASE64.encode(&doc_state),
+            data: BASE64.encode(&full_state),
         };
         if let Ok(json) = serde_json::to_string(&doc_msg) {
             let _ = sender.send(Message::Text(json.into())).await;
         }
-    } else if !initial_doc_b64.is_empty() {
+    } else {
+        // Room has no merged state yet — tell client to fall back to DB text.
         let doc_msg = CollabMessage::DocUpdate {
             user_id: Uuid::nil(),
-            data: initial_doc_b64,
+            data: BASE64.encode(initial_content.as_bytes()),
         };
         if let Ok(json) = serde_json::to_string(&doc_msg) {
             let _ = sender.send(Message::Text(json.into())).await;
         }
     }
 
-    // Send awareness states
+    // Send existing awareness states (excluding self).
     {
         let awareness = room.awareness.read().await;
         for (uid, data) in awareness.iter() {
@@ -203,9 +226,6 @@ async fn handle_collab_socket(
     let room_broadcast = room.clone();
     let user_id_recv = user_id;
     let role_recv = role.clone();
-    let _file_path_persist = file_path.clone();
-    let _state_persist = state.clone();
-    let _project_id_persist = project_id;
 
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -219,8 +239,7 @@ async fn handle_collab_socket(
                                 }
                                 if uid == user_id_recv {
                                     if let Ok(bytes) = BASE64.decode(&data) {
-                                        let mut doc = room_broadcast.doc_state.write().await;
-                                        *doc = bytes;
+                                        let _ = room_broadcast.apply_yjs_update(&bytes);
                                     }
                                     let broadcast = CollabMessage::DocUpdate {
                                         user_id: uid,
@@ -230,6 +249,9 @@ async fn handle_collab_socket(
                                 }
                             }
                             CollabMessage::AwarenessUpdate { user_id: uid, data } => {
+                                if uid != user_id_recv {
+                                    continue;
+                                }
                                 let mut awareness = room_broadcast.awareness.write().await;
                                 awareness.insert(uid, data.clone());
                                 room_broadcast.broadcast(&CollabMessage::AwarenessUpdate {
@@ -237,12 +259,17 @@ async fn handle_collab_socket(
                                     data,
                                 });
                             }
-                            CollabMessage::Leave { user_id: uid } if uid == user_id_recv => {
+                            CollabMessage::Leave {
+                                user_id: uid, ..
+                            } if uid == user_id_recv => {
                                 break;
                             }
                             _ => {}
                         }
                     }
+                }
+                Message::Ping(_) => {
+                    let _ = room_broadcast.clone();
                 }
                 Message::Close(_) => break,
                 _ => {}
@@ -250,8 +277,9 @@ async fn handle_collab_socket(
         }
     });
 
-    let room_fwd = room.clone();
+    let _room_fwd = room.clone();
     let user_id_fwd = user_id;
+    let connection_id_fwd = connection_id;
     let fwd_task = tokio::spawn(async move {
         loop {
             match rx.recv().await {
@@ -267,8 +295,11 @@ async fn handle_collab_socket(
                                 continue;
                             }
                         }
-                        if let CollabMessage::Join { user_id: uid, .. } = &parsed {
-                            if *uid == user_id_fwd {
+                        if let CollabMessage::Join {
+                            connection_id: cid, ..
+                        } = &parsed
+                        {
+                            if *cid == connection_id_fwd {
                                 continue;
                             }
                         }
@@ -290,18 +321,28 @@ async fn handle_collab_socket(
 
     {
         let mut presence = room.presence.write().await;
-        presence.remove(&user_id);
+        presence.remove(&connection_id);
         let mut awareness = room.awareness.write().await;
         awareness.remove(&user_id);
     }
-    room.broadcast(&CollabMessage::Leave { user_id });
+    room.broadcast(&CollabMessage::Leave {
+        connection_id,
+        user_id,
+    });
+    room.broadcast(&CollabMessage::AwarenessRemove { user_id });
     send_presence(&room).await;
+
+    let remaining = room.member_leave();
+    if remaining == 0 {
+        collab.schedule_room_eviction(room_key, room);
+    }
 }
 
 async fn handle_project_collab_socket(
     socket: WebSocket,
     state: AppState,
     project_id: Uuid,
+    connection_id: Uuid,
     user_id: Uuid,
     name: String,
     color: String,
@@ -309,14 +350,16 @@ async fn handle_project_collab_socket(
 ) {
     let collab = state.collab.clone();
     let tx = collab.get_project_broadcast(project_id);
+    collab.project_member_join(project_id);
     let mut rx = tx.subscribe();
     let presence_map = collab.get_project_presence(project_id);
 
     {
         let mut presence = presence_map.write().await;
         presence.insert(
-            user_id,
+            connection_id,
             PresenceUser {
+                connection_id,
                 user_id,
                 name: name.clone(),
                 color: color.clone(),
@@ -326,6 +369,7 @@ async fn handle_project_collab_socket(
     }
 
     let join = CollabMessage::Join {
+        connection_id,
         user_id,
         name: name.clone(),
         color: color.clone(),
@@ -349,6 +393,7 @@ async fn handle_project_collab_socket(
     let user_id_recv = user_id;
     let role_recv = role;
     let state_fs = state.clone();
+    let user_name = name.clone();
 
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -363,7 +408,7 @@ async fn handle_project_collab_socket(
                             language,
                             old_path,
                         } if *uid == user_id_recv && role_recv != "viewer" => {
-                            if persist_file_tree_change(
+                            match persist_file_tree_change(
                                 &state_fs,
                                 project_id,
                                 action,
@@ -373,21 +418,36 @@ async fn handle_project_collab_socket(
                                 old_path.as_deref(),
                             )
                             .await
-                            .is_ok()
                             {
-                                if let Ok(json) = serde_json::to_string(&parsed) {
-                                    let _ = tx_send.send(json);
+                                Ok(()) => {
+                                    if let Ok(json) = serde_json::to_string(&parsed) {
+                                        let _ = tx_send.send(json);
+                                    }
+                                }
+                                Err(e) => {
+                                    let err = CollabMessage::FileTreeError {
+                                        user_id: user_id_recv,
+                                        action: action.clone(),
+                                        file_path: file_path.clone(),
+                                        message: e.to_string(),
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&err) {
+                                        let _ = tx_send.send(json);
+                                    }
                                 }
                             }
                         }
                         _ => {}
                     }
                 }
+            } else if matches!(msg, Message::Close(_)) {
+                break;
             }
         }
     });
 
     let user_id_fwd = user_id;
+    let connection_id_fwd = connection_id;
     let fwd_task = tokio::spawn(async move {
         loop {
             match rx.recv().await {
@@ -395,6 +455,14 @@ async fn handle_project_collab_socket(
                     if let Ok(parsed) = serde_json::from_str::<CollabMessage>(&json) {
                         if let CollabMessage::FileTreeUpdate { user_id: uid, .. } = &parsed {
                             if *uid == user_id_fwd {
+                                continue;
+                            }
+                        }
+                        if let CollabMessage::Join {
+                            connection_id: cid, ..
+                        } = &parsed
+                        {
+                            if *cid == connection_id_fwd {
                                 continue;
                             }
                         }
@@ -416,9 +484,12 @@ async fn handle_project_collab_socket(
 
     {
         let mut presence = presence_map.write().await;
-        presence.remove(&user_id);
+        presence.remove(&connection_id);
     }
-    if let Ok(json) = serde_json::to_string(&CollabMessage::Leave { user_id }) {
+    if let Ok(json) = serde_json::to_string(&CollabMessage::Leave {
+        connection_id,
+        user_id,
+    }) {
         let _ = tx.send(json);
     }
     let users: Vec<PresenceUser> = {
@@ -428,6 +499,13 @@ async fn handle_project_collab_socket(
     if let Ok(json) = serde_json::to_string(&CollabMessage::Presence { users }) {
         let _ = tx.send(json);
     }
+
+    let remaining = collab.project_member_leave(project_id);
+    if remaining == 0 {
+        collab.schedule_project_eviction(project_id);
+    }
+
+    let _ = user_name;
 }
 
 async fn send_presence(room: &Arc<crate::services::collab::Room>) {
@@ -531,6 +609,30 @@ pub async fn resolve_collab_role(
     Ok(role.unwrap_or_else(|| "none".to_string()))
 }
 
+pub async fn ensure_project_member(
+    state: &AppState,
+    project_id: Uuid,
+    user_id: Uuid,
+) -> Result<String> {
+    let role = resolve_collab_role(state, project_id, user_id).await?;
+    if role == "none" {
+        return Err(AppError::Forbidden);
+    }
+    Ok(role)
+}
+
+pub async fn ensure_project_editor(
+    state: &AppState,
+    project_id: Uuid,
+    user_id: Uuid,
+) -> Result<()> {
+    let role = resolve_collab_role(state, project_id, user_id).await?;
+    if role == "none" || role == "viewer" {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,6 +640,7 @@ mod tests {
     #[test]
     fn collab_message_serializes_with_type_tag() {
         let msg = CollabMessage::Join {
+            connection_id: Uuid::nil(),
             user_id: Uuid::nil(),
             name: "alice".into(),
             color: "#FF6B6B".into(),
@@ -556,5 +659,3 @@ fn color_for_user(user_id: Uuid) -> String {
     let idx = (user_id.as_u128() as usize) % COLORS.len();
     COLORS[idx].to_string()
 }
-
-use std::sync::Arc;

@@ -16,8 +16,9 @@ export default function CollabEditor({
   readOnly,
   onContentChange,
   onSaveDebounced,
+  onFileConnectionStatus,
+  onSessionRestored,
 }) {
-  const containerRef = useRef(null)
   const sessionRef = useRef(null)
   const bindingRef = useRef(null)
   const editorRef = useRef(null)
@@ -50,7 +51,9 @@ export default function CollabEditor({
       userId,
       userName,
       userColor,
-      initialText: initialContent || '',
+      fallbackText: initialContent || '',
+      onStatus: onFileConnectionStatus,
+      onSessionRestored,
     })
     sessionRef.current = session
 
@@ -61,6 +64,7 @@ export default function CollabEditor({
     const textObserver = () => {
       const content = session.ytext.toString()
       onContentChange?.(content)
+      if (readOnly) return
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(() => {
         onSaveDebounced?.(content)
@@ -97,11 +101,11 @@ export default function CollabEditor({
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full">
+    <div className="h-full w-full">
       <Editor
         height="100%"
         language={language}
-        defaultValue={initialContent || ''}
+        defaultValue=""
         onMount={handleMount}
         theme="vs-dark"
         options={{
