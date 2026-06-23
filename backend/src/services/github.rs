@@ -66,6 +66,30 @@ impl GitHubClient {
             .map_err(|e| AppError::Internal(e.into()))
     }
 
+    /// Resolve a branch (empty = default) to its current head commit SHA.
+    pub async fn get_branch_head_sha(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {
+        let ref_branch = if branch.is_empty() {
+            self.get_repo(owner, repo).await?.default_branch
+        } else {
+            branch.to_string()
+        };
+
+        let ref_resp: GitHubRef = self
+            .authed(self.http.get(format!(
+                "{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{ref_branch}"
+            )))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?
+            .error_for_status()
+            .map_err(|e| AppError::BadRequest(format!("GitHub ref error: {e}")))?
+            .json()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        Ok(ref_resp.object.sha)
+    }
+
     pub async fn get_file_tree(&self, owner: &str, repo: &str, branch: &str) -> Result<GitHubTree> {
         let repo_info = self.get_repo(owner, repo).await?;
         let ref_branch = if branch.is_empty() {
@@ -243,6 +267,8 @@ impl GitHubClient {
         branch: &str,
         message: &str,
         files: &[PushFileEntry],
+        deletions: &[String],
+        expected_head: Option<&str>,
     ) -> Result<GitHubPushResult> {
         let ref_resp: GitHubRef = self
             .authed(self.http.get(format!(
@@ -258,6 +284,17 @@ impl GitHubClient {
             .map_err(|e| AppError::Internal(e.into()))?;
 
         let base_commit_sha = ref_resp.object.sha;
+
+        // Conflict guard: if we know the commit this project was last synced to and
+        // the remote branch has advanced past it, refuse to push so we don't silently
+        // clobber commits made on GitHub since the last import/push.
+        if let Some(expected) = expected_head {
+            if !expected.is_empty() && expected != base_commit_sha {
+                return Err(AppError::Conflict(
+                    "This repo has new commits on GitHub since you last synced. Refresh from GitHub before pushing so your changes don't overwrite them.".into(),
+                ));
+            }
+        }
         let base_commit: GitHubCommit = self
             .authed(self.http.get(format!(
                 "{GITHUB_API}/repos/{owner}/{repo}/git/commits/{base_commit_sha}"
@@ -300,6 +337,17 @@ impl GitHubClient {
                 "mode": "100644",
                 "type": "blob",
                 "sha": blob.sha,
+            }));
+        }
+
+        // Deleting a path from a tree built on `base_tree` is done by sending a null
+        // sha for that path. This propagates files the user removed locally.
+        for path in deletions {
+            tree_items.push(serde_json::json!({
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": serde_json::Value::Null,
             }));
         }
 
@@ -357,6 +405,87 @@ impl GitHubClient {
             file_sha: last_file_sha,
         })
     }
+
+    /// Whether a branch exists on the remote.
+    pub async fn branch_exists(&self, owner: &str, repo: &str, branch: &str) -> Result<bool> {
+        let resp = self
+            .authed(self.http.get(format!(
+                "{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}"
+            )))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        if resp.status().is_success() {
+            Ok(true)
+        } else if resp.status().as_u16() == 404 {
+            Ok(false)
+        } else {
+            Err(Self::parse_error(resp).await)
+        }
+    }
+
+    /// Create a new branch pointing at `from_sha`.
+    pub async fn create_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        new_branch: &str,
+        from_sha: &str,
+    ) -> Result<()> {
+        let resp = self
+            .authed(self.http.post(format!("{GITHUB_API}/repos/{owner}/{repo}/git/refs")))
+            .json(&serde_json::json!({
+                "ref": format!("refs/heads/{new_branch}"),
+                "sha": from_sha,
+            }))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        if !resp.status().is_success() {
+            return Err(Self::parse_error(resp).await);
+        }
+        Ok(())
+    }
+
+    /// Open a pull request and return its html URL.
+    pub async fn create_pull_request(
+        &self,
+        owner: &str,
+        repo: &str,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<String> {
+        let resp = self
+            .authed(self.http.post(format!("{GITHUB_API}/repos/{owner}/{repo}/pulls")))
+            .json(&serde_json::json!({
+                "title": title,
+                "head": head,
+                "base": base,
+                "body": body,
+            }))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        if !resp.status().is_success() {
+            return Err(Self::parse_error(resp).await);
+        }
+
+        let pr: GitHubPullRequest = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+        Ok(pr.html_url)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubPullRequest {
+    html_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -488,25 +617,36 @@ const SKIP_PREFIXES: &[&str] = &[
 
 const SKIP_EXTENSIONS: &[&str] = &[".wasm", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".zip", ".pdf"];
 
-pub fn should_import_path(path: &str, size: Option<u64>) -> bool {
-    if SKIP_PREFIXES.iter().any(|p| path.starts_with(p)) {
-        return false;
+pub const MAX_IMPORT_FILE_BYTES: u64 = 512_000;
+
+/// Why a repo path was (or wasn't) imported. Used to give the user a clear
+/// per-file breakdown instead of silently dropping files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportDecision {
+    Import,
+    /// Build artifact / vcs metadata / directory entry — not interesting to report.
+    SkipArtifact,
+    SkipBinary,
+    SkipTooLarge,
+}
+
+pub fn classify_import_path(path: &str, size: Option<u64>) -> ImportDecision {
+    if path.ends_with('/') || SKIP_PREFIXES.iter().any(|p| path.starts_with(p)) {
+        return ImportDecision::SkipArtifact;
     }
-    if path.ends_with('/') {
-        return false;
-    }
-    if SKIP_EXTENSIONS
-        .iter()
-        .any(|ext| path.ends_with(ext))
-    {
-        return false;
+    if SKIP_EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
+        return ImportDecision::SkipBinary;
     }
     if let Some(s) = size {
-        if s > 512_000 {
-            return false;
+        if s > MAX_IMPORT_FILE_BYTES {
+            return ImportDecision::SkipTooLarge;
         }
     }
-    true
+    ImportDecision::Import
+}
+
+pub fn should_import_path(path: &str, size: Option<u64>) -> bool {
+    matches!(classify_import_path(path, size), ImportDecision::Import)
 }
 
 pub fn language_for_path(path: &str) -> &'static str {

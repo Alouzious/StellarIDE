@@ -140,6 +140,45 @@ pub async fn exchange_github_code(state: &AppState, code: &str) -> Result<(Strin
     Ok((access_token, scopes))
 }
 
+/// Result of probing a stored GitHub token against the API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenStatus {
+    /// Token works.
+    Valid,
+    /// Token is expired or revoked (GitHub returned 401).
+    Invalid,
+    /// Couldn't determine (network error, rate limit, etc.) — assume still valid.
+    Unknown,
+}
+
+/// Lightweight authenticated probe (`GET /user`) to check whether a stored token
+/// is still usable. Only a hard 401 is treated as revoked; 403 may just be a rate
+/// limit, so it is reported as `Unknown` and the connection is left alone.
+pub async fn validate_github_token(access_token: &str) -> TokenStatus {
+    let http = reqwest::Client::new();
+    match http
+        .get("https://api.github.com/user")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("User-Agent", "StellarIDE")
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            if resp.status().is_success() {
+                TokenStatus::Valid
+            } else if code == 401 {
+                TokenStatus::Invalid
+            } else {
+                TokenStatus::Unknown
+            }
+        }
+        Err(_) => TokenStatus::Unknown,
+    }
+}
+
 pub async fn github_primary_email(_state: &AppState, access_token: &str) -> Result<String> {
     let http = reqwest::Client::new();
     let emails_resp = http
@@ -154,13 +193,23 @@ pub async fn github_primary_email(_state: &AppState, access_token: &str) -> Resu
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
 
-    emails_resp
+    let is_verified = |e: &serde_json::Value| e["verified"].as_bool().unwrap_or(false);
+
+    // Only ever trust a verified email for login / account-linking. An attacker can
+    // add an unverified address to their own GitHub account, so matching on it would
+    // let them take over an existing StellarIDE account with the same email.
+    let chosen = emails_resp
         .iter()
-        .find(|e| e["primary"].as_bool().unwrap_or(false))
+        .find(|e| e["primary"].as_bool().unwrap_or(false) && is_verified(e))
+        .or_else(|| emails_resp.iter().find(|e| is_verified(e)))
         .and_then(|e| e["email"].as_str())
-        .or_else(|| emails_resp.first().and_then(|e| e["email"].as_str()))
-        .map(String::from)
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("No email returned from GitHub")))
+        .map(String::from);
+
+    chosen.ok_or_else(|| {
+        AppError::BadRequest(
+            "Your GitHub email address is not verified. Verify your primary email on GitHub, then try signing in again.".into(),
+        )
+    })
 }
 
 pub async fn find_or_create_user_by_email(state: &AppState, email: &str) -> Result<User> {

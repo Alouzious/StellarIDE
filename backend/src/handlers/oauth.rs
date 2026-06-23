@@ -13,7 +13,7 @@ use crate::{
     services::oauth_github::{
         backend_base, decode_oauth_state, encode_oauth_state, exchange_github_code,
         find_or_create_user_by_email, github_authorize_url, github_primary_email,
-        upsert_github_connection,
+        upsert_github_connection, validate_github_token, TokenStatus,
     },
     AppState,
 };
@@ -87,7 +87,18 @@ pub async fn github_callback(
         return Ok(Redirect::temporary(&url));
     }
 
-    let email = github_primary_email(&state, &access_token).await?;
+    let email = match github_primary_email(&state, &access_token).await {
+        Ok(email) => email,
+        Err(AppError::BadRequest(msg)) => {
+            let url = format!(
+                "{}/login?error={}",
+                state.config.frontend_url,
+                urlencoding::encode(&msg)
+            );
+            return Ok(Redirect::temporary(&url));
+        }
+        Err(e) => return Err(e),
+    };
     let user = find_or_create_user_by_email(&state, &email).await?;
     upsert_github_connection(&state, user.id, &access_token, scopes_str).await?;
 
@@ -114,17 +125,40 @@ pub async fn github_status(
     .fetch_optional(&state.db)
     .await?;
 
-    Ok(Json(match conn {
-        Some(c) => GitHubStatusResponse {
-            connected: true,
-            github_login: c.provider_login,
-            scopes: c.scopes,
-        },
-        None => GitHubStatusResponse {
+    let Some(c) = conn else {
+        return Ok(Json(GitHubStatusResponse {
             connected: false,
             github_login: None,
             scopes: None,
-        },
+            reason: None,
+        }));
+    };
+
+    // Validate the stored token so we don't report a revoked/expired connection as
+    // healthy. Only a hard 401 clears the connection; transient errors are trusted.
+    if validate_github_token(&c.access_token).await == TokenStatus::Invalid {
+        let _ = sqlx::query(
+            "DELETE FROM oauth_connections WHERE user_id = $1 AND provider = 'github'",
+        )
+        .bind(auth.id)
+        .execute(&state.db)
+        .await;
+
+        return Ok(Json(GitHubStatusResponse {
+            connected: false,
+            github_login: None,
+            scopes: None,
+            reason: Some(
+                "Your GitHub connection expired or was revoked. Please reconnect GitHub.".into(),
+            ),
+        }));
+    }
+
+    Ok(Json(GitHubStatusResponse {
+        connected: true,
+        github_login: c.provider_login,
+        scopes: c.scopes,
+        reason: None,
     }))
 }
 

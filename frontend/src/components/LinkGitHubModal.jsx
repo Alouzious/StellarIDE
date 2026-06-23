@@ -144,6 +144,12 @@ export default function LinkGitHubModal({ open, onClose, projectId, onLinked }) 
       return (
         <div className="space-y-4 text-center py-4">
           <GitHubIcon className="w-8 h-8 mx-auto text-stellar-text" />
+          {status?.reason && (
+            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 text-left">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              {status.reason}
+            </div>
+          )}
           <p className="text-sm text-stellar-muted">Connect GitHub to link this project to a repo.</p>
           <Button className="w-full justify-center" onClick={startGitHubLogin}>
             Sign in with GitHub

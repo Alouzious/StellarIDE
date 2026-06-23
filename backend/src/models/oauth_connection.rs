@@ -20,4 +20,7 @@ pub struct GitHubStatusResponse {
     pub connected: bool,
     pub github_login: Option<String>,
     pub scopes: Option<String>,
+    /// Human-readable explanation when `connected` is false because a previously
+    /// stored token turned out to be expired or revoked.
+    pub reason: Option<String>,
 }
