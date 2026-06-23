@@ -16,8 +16,6 @@ use crate::{config::Config, models::project_file::ProjectFile};
 
 use super::soroban::{build_shell_command, write_workspace, LineSink, NO_CARGO_MSG};
 
-pub const AUDIT_TIMEOUT_SECS: u64 = 60;
-
 pub const SCOUT_PROGRESS_CATEGORIES: &[&str] = &[
     "access control issues",
     "arithmetic vulnerabilities",
@@ -302,11 +300,14 @@ async fn execute_scout(
     };
 
     timeout(
-        std::time::Duration::from_secs(AUDIT_TIMEOUT_SECS.min(config.soroban_timeout_seconds.max(10))),
+        std::time::Duration::from_secs(config.soroban_timeout_seconds),
         run,
     )
     .await
-    .map_err(|_| anyhow!("Scout audit timed out after {AUDIT_TIMEOUT_SECS} seconds"))?
+    .map_err(|_| anyhow!(
+        "Scout audit timed out after {} seconds",
+        config.soroban_timeout_seconds
+    ))?
 }
 
 fn emit_progress(on_line: &LineSink) {
@@ -394,7 +395,10 @@ pub async fn run_scout_audit(
         Err(err) => {
             let msg = err.to_string();
             let friendly = if msg.contains("timed out") {
-                format!("Scout audit timed out after {AUDIT_TIMEOUT_SECS}s — try a smaller contract or increase timeout")
+                format!(
+                    "Scout audit timed out after {}s — try a smaller contract or increase SOROBAN_TIMEOUT_SECONDS",
+                    config.soroban_timeout_seconds
+                )
             } else if msg.contains("No such file") || msg.contains("not found") || msg.contains("scout-audit") {
                 "Scout is not installed in the execution environment. Rebuild the sandbox Docker image with cargo-scout-audit.".into()
             } else {

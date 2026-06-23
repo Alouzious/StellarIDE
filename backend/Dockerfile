@@ -39,6 +39,15 @@ RUN rustup target add wasm32-unknown-unknown
 # Scout static analyzer for contract auditing (local execution on Render)
 RUN cargo install cargo-scout-audit --version 0.3.16
 
+# Pre-compile Scout detectors so first audit run is fast
+RUN mkdir -p /tmp/scout-warmup/src && \
+    echo '#![no_std]\nuse soroban_sdk::{contract, contractimpl};\n#[contract]\npub struct W;\n#[contractimpl]\nimpl W {}' \
+    > /tmp/scout-warmup/src/lib.rs && \
+    echo '[package]\nname="warmup"\nversion="0.1.0"\nedition="2021"\n[lib]\ncrate-type=["cdylib"]\n[dependencies]\nsoroban-sdk={version="22"}' \
+    > /tmp/scout-warmup/Cargo.toml && \
+    cd /tmp/scout-warmup && \
+    cargo scout-audit --output-format json || true
+
 WORKDIR /app
 COPY --from=builder /app/target/release/backend ./backend
 COPY --from=builder /app/migrations ./migrations
