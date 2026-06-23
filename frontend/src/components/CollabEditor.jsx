@@ -18,10 +18,13 @@ export default function CollabEditor({
   onSaveDebounced,
   onFileConnectionStatus,
   onSessionRestored,
+  editorHighlight,
 }) {
   const sessionRef = useRef(null)
   const bindingRef = useRef(null)
   const editorRef = useRef(null)
+  const monacoRef = useRef(null)
+  const decorationsRef = useRef([])
   const saveTimerRef = useRef(null)
 
   useEffect(() => {
@@ -82,6 +85,34 @@ export default function CollabEditor({
     }
   }, [projectId, filePath, token, userId, readOnly])
 
+  useEffect(() => {
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    if (!editor || !monaco || !editorHighlight) {
+      if (editor) {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [])
+      }
+      return
+    }
+    const fileName = filePath?.split('/').pop()
+    const highlightFile = editorHighlight.file
+    if (highlightFile && highlightFile !== filePath && highlightFile !== fileName) {
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [])
+      return
+    }
+    const start = editorHighlight.lineStart || 1
+    const end = editorHighlight.lineEnd || start
+    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [{
+      range: new monaco.Range(start, 1, end, 1),
+      options: {
+        isWholeLine: true,
+        className: 'audit-highlight-line',
+        glyphMarginClassName: 'audit-highlight-glyph',
+      },
+    }])
+    editor.revealLineInCenter(start)
+  }, [editorHighlight, filePath])
+
   const attachBinding = (editor, session, isReadOnly) => {
     bindingRef.current?.destroy()
     editor.updateOptions({ readOnly: isReadOnly })
@@ -93,8 +124,9 @@ export default function CollabEditor({
     )
   }
 
-  const handleMount = (editor) => {
+  const handleMount = (editor, monaco) => {
     editorRef.current = editor
+    monacoRef.current = monaco
     if (sessionRef.current) {
       attachBinding(editor, sessionRef.current, readOnly)
     }
@@ -122,6 +154,7 @@ export default function CollabEditor({
           insertSpaces: true,
           padding: { top: 16, bottom: 16 },
           readOnly: readOnly,
+          glyphMargin: true,
         }}
       />
     </div>

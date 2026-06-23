@@ -722,6 +722,99 @@ pub async fn audit_project(
     Ok(Json(json!(result)))
 }
 
+pub async fn audit_project_stream(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Response> {
+    ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
+    let files = load_project_files(project_id, &state).await?;
+    let require_cargo = project_requires_cargo(&project);
+    let user_name = user_display_name(&state, auth.id).await;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+    let state_bg = state.clone();
+    let auth_id = auth.id;
+
+    tokio::spawn(async move {
+        state_bg.collab.broadcast_project(
+            project_id,
+            &CollabMessage::AuditStarted {
+                user_id: auth_id,
+                user_name: user_name.clone(),
+            },
+        );
+        state_bg.collab.broadcast_project(
+            project_id,
+            &CollabMessage::TerminalStarted {
+                user_id: auth_id,
+                user_name: user_name.clone(),
+                operation: "audit".into(),
+            },
+        );
+
+        let on_line = terminal_line_sink(
+            tx.clone(),
+            state_bg.clone(),
+            project_id,
+            auth_id,
+            user_name.clone(),
+            "audit",
+        );
+
+        let result = soroban::run_audit_stream(
+            project_id,
+            &files,
+            &state_bg.config,
+            require_cargo,
+            on_line,
+        )
+        .await;
+
+        match result {
+            Ok(r) => {
+                if r.success && r.findings.is_empty() {
+                    let _ = tx.send("[DONE]".into()).await;
+                } else if r.findings.is_empty() && !r.success {
+                    let _ = tx.send("[ERROR] exit code 1".into()).await;
+                } else {
+                    let _ = tx.send("[DONE]".into()).await;
+                }
+
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::AuditComplete {
+                        user_id: auth_id,
+                        user_name: user_name.clone(),
+                        success: r.success,
+                        message: r.message.clone(),
+                        risk_level: r.risk_level.clone(),
+                        findings: r.findings.clone(),
+                    },
+                );
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::TerminalDone {
+                        user_id: auth_id,
+                        user_name,
+                        operation: "audit".into(),
+                        success: r.success,
+                        message: r.message,
+                    },
+                );
+            }
+            Err(err) => {
+                let _ = tx
+                    .send(format!("[ERROR] exit code 1 — {err}"))
+                    .await;
+            }
+        }
+    });
+
+    Ok(sse_response(rx))
+}
+
 async fn ensure_project_access(user_id: Uuid, project_id: Uuid, state: &AppState) -> Result<()> {
     let role = resolve_collab_role(state, project_id, user_id).await?;
     if role == "none" {

@@ -103,6 +103,18 @@ pub enum CollabMessage {
         success: bool,
         message: String,
     },
+    AuditStarted {
+        user_id: Uuid,
+        user_name: String,
+    },
+    AuditComplete {
+        user_id: Uuid,
+        user_name: String,
+        success: bool,
+        message: String,
+        risk_level: String,
+        findings: Vec<crate::services::scout_audit::AuditFinding>,
+    },
     SessionRestored,
     Error {
         message: String,

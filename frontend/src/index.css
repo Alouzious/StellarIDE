@@ -35,3 +35,16 @@
 ::-webkit-scrollbar-track { background: #0a0e1a; }
 ::-webkit-scrollbar-thumb { background: #1e2d4f; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+/* Monaco audit finding highlight */
+.audit-highlight-line {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-left: 3px solid #ef4444;
+}
+.audit-highlight-glyph {
+  background: #ef4444;
+  border-radius: 50%;
+  width: 8px !important;
+  height: 8px !important;
+  margin-left: 4px;
+}

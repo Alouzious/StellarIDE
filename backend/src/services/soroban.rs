@@ -41,7 +41,7 @@ pub struct DeployRequest {
     pub secret_key: Option<String>,
 }
 
-const NO_CARGO_MSG: &str = "No Cargo.toml found. Please select the folder containing your Soroban contract.";
+pub(crate) const NO_CARGO_MSG: &str = "No Cargo.toml found. Please select the folder containing your Soroban contract.";
 
 pub type LineSink = Arc<dyn Fn(String) + Send + Sync>;
 
@@ -301,56 +301,32 @@ pub async fn run_audit(
     files: &[ProjectFile],
     config: &Config,
     require_cargo_toml: bool,
-) -> anyhow::Result<SorobanCommandResponse> {
-    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await?;
-    let start = Instant::now();
+) -> anyhow::Result<crate::services::scout_audit::AuditResult> {
+    crate::services::scout_audit::run_scout_audit(
+        project_id,
+        files,
+        config,
+        require_cargo_toml,
+        None,
+    )
+    .await
+}
 
-    let mut logs = run_static_checks(files);
-    let mut success = true;
-    let mut status = "success".to_string();
-    let mut message = "Basic audit checks completed".to_string();
-
-    if let Some(command) = &config.soroban_audit_command {
-        match execute_script(config, &workspace, command).await {
-            Ok(result) => {
-                success = success && result.success;
-                if !result.success {
-                    status = "failed".into();
-                    message = "Audit command reported issues".into();
-                }
-                logs.extend(result.logs);
-            }
-            Err(err) => {
-                success = false;
-                status = "failed".into();
-                message = "Audit command failed".into();
-                logs.push(format!("Audit execution error: {err}"));
-            }
-        }
-    } else {
-        status = "scaffold".into();
-        success = false;
-        message = "Set SOROBAN_AUDIT_COMMAND to run Scout or custom audit tooling.".into();
-        logs.push(
-            "TODO: configure SOROBAN_AUDIT_COMMAND (example: scout-audit --json .) for full contract auditing."
-                .into(),
-        );
-    }
-
-    cleanup_workspace(&workspace).await;
-
-    Ok(SorobanCommandResponse {
-        operation: "audit",
-        status,
-        message,
-        logs,
-        success,
-        duration_ms: start.elapsed().as_millis(),
-        wasm_artifact: None,
-        wasm_base64: None,
-        wasm_saved: false,
-        contract_id: None,
-    })
+pub async fn run_audit_stream(
+    project_id: Uuid,
+    files: &[ProjectFile],
+    config: &Config,
+    require_cargo_toml: bool,
+    on_line: LineSink,
+) -> anyhow::Result<crate::services::scout_audit::AuditResult> {
+    crate::services::scout_audit::run_scout_audit(
+        project_id,
+        files,
+        config,
+        require_cargo_toml,
+        Some(on_line),
+    )
+    .await
 }
 
 struct CommandResult {
@@ -427,7 +403,7 @@ async fn execute_script_streaming(
     })?
 }
 
-fn build_shell_command(config: &Config, workspace: &Path, script: &str) -> Command {
+pub(crate) fn build_shell_command(config: &Config, workspace: &Path, script: &str) -> Command {
     if config.soroban_execution_mode.eq_ignore_ascii_case("local") {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script);
@@ -778,7 +754,7 @@ rm -f /root/.config/stellar/identity/{key_name}.toml"#,
     }
 }
 
-async fn write_workspace(
+pub(crate) async fn write_workspace(
     project_id: Uuid,
     files: &[ProjectFile],
     soroban_sdk_version: &str,
@@ -909,29 +885,6 @@ fn split_output(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
-fn run_static_checks(files: &[ProjectFile]) -> Vec<String> {
-    let mut logs = vec!["Running static audit checks...".into()];
-    let mut unsafe_count = 0usize;
-    let mut unwrap_count = 0usize;
-
-    for file in files {
-        if file.language != "rust" && !file.file_path.ends_with(".rs") {
-            continue;
-        }
-        unsafe_count += file.content.matches("unsafe").count();
-        unwrap_count += file.content.matches(".unwrap(").count();
-    }
-
-    logs.push(format!("unsafe keyword occurrences: {unsafe_count}"));
-    logs.push(format!("unwrap() call occurrences: {unwrap_count}"));
-    if unsafe_count > 0 || unwrap_count > 0 {
-        logs.push("Warning: review unsafe/unwrap usage for production-grade contracts.".into());
-    } else {
-        logs.push("No obvious unsafe/unwrap patterns found in Rust source files.".into());
-    }
-    logs
-}
-
 fn network_passphrase(network: &str) -> &'static str {
     if network.eq_ignore_ascii_case("mainnet") {
         "Public Global Stellar Network ; September 2015"
@@ -970,7 +923,7 @@ fn contract_cli_command(configured_path: &str) -> String {
     }
 }
 
-async fn cleanup_workspace(workspace: &Path) {
+pub(crate) async fn cleanup_workspace(workspace: &Path) {
     if let Err(err) = fs::remove_dir_all(workspace).await {
         tracing::debug!(
             "Failed to clean temp workspace {}: {}",

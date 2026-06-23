@@ -25,6 +25,7 @@ import Button from '../components/ui/Button'
 import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
+import AuditResultsPanel from '../components/AuditResultsPanel'
 import PresenceBar from '../components/PresenceBar'
 import ShareModal from '../components/ShareModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
@@ -119,7 +120,8 @@ function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename })
 
 function OutputPanel({
   logs, onClear, onFix, onExplain, hasErrors, aiRunning, readOnly,
-  compileStatus, testStatus, deployStatus,
+  compileStatus, testStatus, deployStatus, auditStatus,
+  showAuditResultsLink, onShowAuditResults,
 }) {
   const bottomRef = useRef(null)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -128,12 +130,14 @@ function OutputPanel({
     compileStatus === 'running' ||
     testStatus === 'running' ||
     deployStatus === 'running' ||
-    deployStatus === 'signing'
+    deployStatus === 'signing' ||
+    auditStatus === 'running'
 
   const headerStatus = (() => {
     if (compileStatus === 'running') return 'Compiling…'
     if (testStatus === 'running') return 'Testing…'
     if (deployStatus === 'running' || deployStatus === 'signing') return 'Deploying…'
+    if (auditStatus === 'running') return 'Auditing…'
     return 'Ready'
   })()
 
@@ -177,6 +181,16 @@ function OutputPanel({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {showAuditResultsLink && (
+            <button
+              type="button"
+              onClick={onShowAuditResults}
+              className="text-xs px-2 py-0.5 rounded border border-stellar-border text-stellar-accent hover:bg-stellar-accent/10 transition-colors inline-flex items-center gap-1"
+            >
+              <Shield className="w-3 h-3" />
+              Audit Results
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setAutoScroll((v) => !v)}
@@ -862,7 +876,9 @@ export default function IdePage() {
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
     applyFileTreeUpdate, debouncedSaveFile, appendLog, appendStreamLine,
-    beginRemoteTerminal, finishRemoteTerminal,
+    beginRemoteTerminal, finishRemoteTerminal, applyRemoteAuditResults,
+    auditFindings, auditRiskLevel, auditMessage, auditPanelOpen, auditShowTerminal,
+    setAuditPanelOpen, setAuditShowTerminal, jumpToFinding, editorHighlight,
   } = useIdeStore()
   const { isOpen: chatOpen, toggleChat, closeChat, setProjectId: setChatProjectId } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
@@ -929,6 +945,9 @@ export default function IdePage() {
     handleSessionRestored,
     userId: user?.id,
     setBottomPanelOpen,
+    applyRemoteAuditResults,
+    setAuditPanelOpen,
+    setAuditShowTerminal,
   }
 
   const sendFileTreeUpdate = (payload, optimistic = true) => {
@@ -968,6 +987,19 @@ export default function IdePage() {
       onTerminalDone: (msg) => {
         if (msg.user_id === collabCallbacksRef.current.userId) return
         collabCallbacksRef.current.finishRemoteTerminal(msg)
+      },
+      onAuditStarted: (msg) => {
+        if (msg.user_id === collabCallbacksRef.current.userId) return
+        collabCallbacksRef.current.setBottomPanelOpen(true)
+      },
+      onAuditComplete: (msg) => {
+        if (msg.user_id === collabCallbacksRef.current.userId) return
+        collabCallbacksRef.current.applyRemoteAuditResults({
+          findings: msg.findings,
+          risk_level: msg.risk_level,
+          message: msg.message,
+          success: msg.success,
+        })
       },
       onDeployStarted: (msg) => {
         collabCallbacksRef.current.setDeployLock({ user_id: msg.user_id, user_name: msg.user_name })
@@ -1054,6 +1086,8 @@ export default function IdePage() {
   const handleAudit = async () => {
     clearLog()
     setBottomPanelOpen(true)
+    setAuditPanelOpen(false)
+    setAuditShowTerminal(true)
     await runAudit(projectId)
   }
 
@@ -1276,6 +1310,7 @@ export default function IdePage() {
                 }
                 onFileConnectionStatus={setFileConnectionStatus}
                 onSessionRestored={handleSessionRestored}
+                editorHighlight={editorHighlight}
               />
             ) : (
               <Editor
@@ -1304,23 +1339,37 @@ export default function IdePage() {
           </div>
           {bottomPanelOpen && (
             <div className="border-t border-stellar-border flex-shrink-0 relative" style={{ height: terminalHeight }}>
-              {/* Drag handle at TOP of terminal */}
               <div
                 onMouseDown={startDrag}
                 className="absolute top-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-stellar-accent/40 transition-colors z-10"
               />
-              <OutputPanel
-                logs={outputLog}
-                onClear={clearLog}
-                onFix={() => fixWithAI(projectId)}
-                onExplain={() => explainError(projectId)}
-                hasErrors={outputLog.some(l => l.level === 'error')}
-                aiRunning={aiStatus === 'running'}
-                readOnly={readOnly}
-                compileStatus={compileStatus}
-                testStatus={testStatus}
-                deployStatus={deployStatus}
-              />
+              {auditPanelOpen && !auditShowTerminal ? (
+                <AuditResultsPanel
+                  findings={auditFindings}
+                  riskLevel={auditRiskLevel}
+                  message={auditMessage}
+                  onClose={() => setAuditPanelOpen(false)}
+                  onSelectFinding={jumpToFinding}
+                  onToggleTerminal={() => setAuditShowTerminal(true)}
+                  showTerminal={false}
+                />
+              ) : (
+                <OutputPanel
+                  logs={outputLog}
+                  onClear={clearLog}
+                  onFix={() => fixWithAI(projectId)}
+                  onExplain={() => explainError(projectId)}
+                  hasErrors={outputLog.some(l => l.level === 'error')}
+                  aiRunning={aiStatus === 'running'}
+                  readOnly={readOnly}
+                  compileStatus={compileStatus}
+                  testStatus={testStatus}
+                  deployStatus={deployStatus}
+                  auditStatus={auditStatus}
+                  showAuditResultsLink={auditPanelOpen && auditShowTerminal}
+                  onShowAuditResults={() => setAuditShowTerminal(false)}
+                />
+              )}
             </div>
           )}
           <div className="flex items-center border-t border-stellar-border bg-stellar-card flex-shrink-0 select-none">

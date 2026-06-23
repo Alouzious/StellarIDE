@@ -18,4 +18,7 @@ RUN curl -L https://github.com/stellar/stellar-cli/releases/download/v22.6.0/ste
     && chmod +x /usr/local/bin/stellar \
     && ln -sf /usr/local/bin/stellar /usr/local/bin/soroban
 
+# Scout static analyzer for contract auditing
+RUN cargo install cargo-scout-audit --version 0.3.16 --locked
+
 WORKDIR /workspace

@@ -348,6 +348,8 @@ export class ProjectCollabProvider {
     onTerminalStarted,
     onTerminalOutput,
     onTerminalDone,
+    onAuditStarted,
+    onAuditComplete,
     onDeployStarted,
     onDeployFinished,
     onSessionRestored,
@@ -362,6 +364,8 @@ export class ProjectCollabProvider {
     this.onTerminalStarted = onTerminalStarted
     this.onTerminalOutput = onTerminalOutput
     this.onTerminalDone = onTerminalDone
+    this.onAuditStarted = onAuditStarted
+    this.onAuditComplete = onAuditComplete
     this.onDeployStarted = onDeployStarted
     this.onDeployFinished = onDeployFinished
     this.onSessionRestored = onSessionRestored
@@ -402,6 +406,12 @@ export class ProjectCollabProvider {
         break
       case 'terminal_done':
         this.onTerminalDone?.(msg)
+        break
+      case 'audit_started':
+        this.onAuditStarted?.(msg)
+        break
+      case 'audit_complete':
+        this.onAuditComplete?.(msg)
         break
       case 'deploy_started':
         this.onDeployStarted?.(msg)

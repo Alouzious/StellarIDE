@@ -107,6 +107,10 @@ pub fn build_router(state: AppState) -> Router {
             "/projects/:id/audit",
             post(handlers::projects::audit_project),
         )
+        .route(
+            "/projects/:id/audit/stream",
+            post(handlers::projects::audit_project_stream),
+        )
         // AI chat assistant
         .route("/ai/chat", post(handlers::ai::chat))
         .route("/projects/:id/ai-fix", post(handlers::ai::ai_fix))
