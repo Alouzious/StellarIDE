@@ -41,6 +41,10 @@ const useWalletStore = create((set, get) => ({
   setNetwork: (network) => {
     set({ network, walletBalance: null })
     reinitWalletKit(network)
+    const { connectedAddress } = get()
+    if (connectedAddress) {
+      get().fetchBalance(connectedAddress, network)
+    }
   },
 
   fetchBalance: async (address, network) => {
