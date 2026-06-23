@@ -40,10 +40,22 @@ const useGitHubStore = create((set, get) => ({
 
   fetchRepos: async () => {
     set({ loading: true, error: null })
+    const PER_PAGE = 100
+    const MAX_PAGES = 20 // safety cap (up to 2000 repos)
     try {
-      const { data } = await api.get('/github/repos')
-      set({ repos: data.repos || [], loading: false })
-      return { success: true, repos: data.repos || [] }
+      const all = []
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const { data } = await api.get('/github/repos', {
+          params: { page, per_page: PER_PAGE },
+        })
+        const batch = data.repos || []
+        all.push(...batch)
+        // Surface results progressively so the list fills in as pages load.
+        set({ repos: [...all] })
+        if (batch.length < PER_PAGE) break
+      }
+      set({ repos: all, loading: false })
+      return { success: true, repos: all }
     } catch (err) {
       const message = err.response?.data?.error || 'Failed to load repositories'
       set({ loading: false, error: message })
@@ -79,7 +91,14 @@ const useGitHubStore = create((set, get) => ({
         subfolder: subfolder || undefined,
       })
       set({ importing: false })
-      return { success: true, project: data.project, filesImported: data.files_imported }
+      return {
+        success: true,
+        project: data.project,
+        filesImported: data.files_imported,
+        filesSkipped: data.files_skipped || 0,
+        skipped: data.skipped || [],
+        warning: data.warning || null,
+      }
     } catch (err) {
       const message = err.response?.data?.error || 'Failed to import repository'
       set({ importing: false, error: message })
