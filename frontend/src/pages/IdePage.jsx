@@ -8,6 +8,7 @@ import {
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
   Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Share2, Link2,
+  AlertCircle,
 } from 'lucide-react'
 import GitHubIcon from '../components/icons/GitHubIcon'
 import useIdeStore from '../features/ide/ideStore'
@@ -24,6 +25,7 @@ import CollabEditor from '../components/CollabEditor'
 import PresenceBar from '../components/PresenceBar'
 import ShareModal from '../components/ShareModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
+import PushModal from '../components/PushModal'
 import api, { getWsBaseUrl } from '../services/api'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
@@ -416,8 +418,7 @@ function userColor(userId) {
   return COLLAB_COLORS[hash]
 }
 
-function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
-  const [message, setMessage] = useState('')
+function GitHubPushBar({ project, onOpenPush, readOnly }) {
   const { connectGitHub, fetchStatus, status } = useGitHubStore()
 
   useEffect(() => {
@@ -427,55 +428,57 @@ function GitHubPushBar({ project, projectId, onPush, pushing, readOnly }) {
   if (!project?.github_owner || !project?.github_repo) return null
 
   const repoLabel = `${project.github_owner}/${project.github_repo}`
-
-  const handlePush = async () => {
-    if (!message.trim()) return
-    await onPush(message.trim())
-    setMessage('')
-  }
+  const needsReconnect = !status?.connected && !!status?.reason
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stellar-border bg-stellar-card/80 flex-shrink-0 flex-wrap">
-      <GitHubIcon className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
-      <span className="text-xs text-stellar-muted truncate max-w-[140px]" title={repoLabel}>
-        {repoLabel}
-      </span>
-      <span className="text-xs text-stellar-border">·</span>
-      <span className="text-xs text-stellar-muted">{project.github_branch || 'main'}</span>
-      {project.github_subfolder && (
-        <>
-          <span className="text-xs text-stellar-border">·</span>
-          <span className="text-xs text-stellar-accent truncate max-w-[120px]" title={project.github_subfolder}>
-            {project.github_subfolder}/
-          </span>
-        </>
+    <div className="border-b border-stellar-border bg-stellar-card/80 flex-shrink-0">
+      {needsReconnect && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-300 flex-1">{status.reason}</span>
+          <button
+            type="button"
+            onClick={connectGitHub}
+            className="text-xs font-semibold text-amber-200 hover:underline"
+          >
+            Reconnect GitHub
+          </button>
+        </div>
       )}
-      {!status?.connected && (
+      <div className="flex items-center gap-2 px-3 py-1.5 flex-wrap">
+        <GitHubIcon className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
+        <span className="text-xs text-stellar-muted truncate max-w-[140px]" title={repoLabel}>
+          {repoLabel}
+        </span>
+        <span className="text-xs text-stellar-border">·</span>
+        <span className="text-xs text-stellar-muted">{project.github_branch || 'main'}</span>
+        {project.github_subfolder && (
+          <>
+            <span className="text-xs text-stellar-border">·</span>
+            <span className="text-xs text-stellar-accent truncate max-w-[120px]" title={project.github_subfolder}>
+              {project.github_subfolder}/
+            </span>
+          </>
+        )}
+        {!status?.connected && !needsReconnect && (
+          <button
+            type="button"
+            onClick={connectGitHub}
+            className="text-xs text-stellar-accent hover:underline ml-1"
+          >
+            Connect GitHub
+          </button>
+        )}
         <button
           type="button"
-          onClick={connectGitHub}
-          className="text-xs text-stellar-accent hover:underline ml-1"
+          onClick={onOpenPush}
+          disabled={!status?.connected || readOnly}
+          className="flex items-center gap-1 px-2.5 py-1 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded text-xs font-semibold transition-all disabled:opacity-50 ml-auto"
         >
-          Connect GitHub
+          <Upload className="w-3 h-3" />
+          Push
         </button>
-      )}
-      <input
-        type="text"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="Commit message..."
-        className="flex-1 min-w-[120px] bg-stellar-surface border border-stellar-border text-stellar-text text-xs rounded px-2 py-1 focus:outline-none focus:border-stellar-accent/50"
-        onKeyDown={(e) => e.key === 'Enter' && handlePush()}
-      />
-      <button
-        type="button"
-        onClick={handlePush}
-        disabled={pushing || !message.trim() || !status?.connected || readOnly}
-        className="flex items-center gap-1 px-2.5 py-1 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded text-xs font-semibold transition-all disabled:opacity-50"
-      >
-        {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-        Push
-      </button>
+      </div>
     </div>
   )
 }
@@ -511,9 +514,9 @@ export default function IdePage() {
   const {
     project, files, activeFile, editorContent, outputLog,
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
-    setProject, loadFiles, setActiveFile, setEditorContent, saveFile, saveAllFiles,
+    setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
-    pushToGitHub, applyFileTreeUpdate, debouncedSaveFile,
+    applyFileTreeUpdate, debouncedSaveFile,
   } = useIdeStore()
   const { isOpen: chatOpen, toggleChat, closeChat } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
@@ -522,7 +525,7 @@ export default function IdePage() {
   const [deployPanelOpen, setDeployPanelOpen] = useState(false)
   const [terminalHeight, setTerminalHeight] = useState(176)
   const [chatWidth, setChatWidth] = useState(320)
-  const [pushing, setPushing] = useState(false)
+  const [pushModalOpen, setPushModalOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const projectCollabRef = useRef(null)
@@ -642,13 +645,9 @@ export default function IdePage() {
     if (chatOpen) closeChat()
   }
 
-  const handlePushGitHub = async (message) => {
-    setPushing(true)
+  const handleBeforePush = () => {
     setBottomPanelOpen(true)
     clearLog()
-    await saveAllFiles(projectId)
-    await pushToGitHub(projectId, message)
-    setPushing(false)
   }
 
   const handleLogout = () => { logout(); navigate('/') }
@@ -802,9 +801,7 @@ export default function IdePage() {
           {project?.github_owner && project?.github_repo ? (
             <GitHubPushBar
               project={project}
-              projectId={projectId}
-              onPush={handlePushGitHub}
-              pushing={pushing}
+              onOpenPush={() => setPushModalOpen(true)}
               readOnly={readOnly}
             />
           ) : (
@@ -931,6 +928,17 @@ export default function IdePage() {
           setProject(p)
           fetchProjects()
           toast.success('GitHub repository linked')
+        }}
+      />
+      <PushModal
+        open={pushModalOpen}
+        onClose={() => setPushModalOpen(false)}
+        projectId={projectId}
+        project={project}
+        onBeforePush={handleBeforePush}
+        onPushed={() => {
+          fetchProjects()
+          toast.success('Pushed to GitHub')
         }}
       />
     </div>

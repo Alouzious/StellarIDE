@@ -64,6 +64,14 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::github::push_project),
         )
         .route(
+            "/projects/:id/github/diff",
+            get(handlers::github::diff_project),
+        )
+        .route(
+            "/projects/:id/github/pushes",
+            get(handlers::github::list_pushes),
+        )
+        .route(
             "/projects/:id/github/link",
             post(handlers::github::link_project_repo),
         )

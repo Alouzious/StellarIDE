@@ -173,18 +173,51 @@ const useIdeStore = create((set, get) => ({
     }
   },
 
-  pushToGitHub: async (projectId, message) => {
+  pushToGitHub: async (projectId, message, options = {}) => {
     const { appendLog } = get()
-    appendLog(`$ git push — "${message}"`, 'info')
+    const { branch, openPr, prBase, prTitle } = options
+    appendLog(`$ git push${branch ? ` origin ${branch}` : ''} — "${message}"`, 'info')
     try {
-      const { data } = await api.post(`/projects/${projectId}/github/push`, { message })
+      const { data } = await api.post(`/projects/${projectId}/github/push`, {
+        message,
+        branch: branch || undefined,
+        open_pr: openPr || undefined,
+        pr_base: prBase || undefined,
+        pr_title: prTitle || undefined,
+      })
       appendLog(`✔  Pushed ${data.files_pushed} file(s) to GitHub`, 'success')
+      if (data.files_deleted > 0) {
+        appendLog(`   Deleted ${data.files_deleted} file(s) on remote`, 'info')
+      }
       appendLog(`   Commit: ${data.commit_sha?.slice(0, 8)}`, 'info')
+      if (data.pr_url) appendLog(`   Pull request: ${data.pr_url}`, 'success')
+      if (data.pr_error) appendLog(`   PR note: ${data.pr_error}`, 'error')
       return { success: true, data }
     } catch (err) {
+      const status = err.response?.status
       const msg = err.response?.data?.error || 'Push to GitHub failed'
       appendLog(`✖  ${msg}`, 'error')
+      return { success: false, error: msg, conflict: status === 409 }
+    }
+  },
+
+  fetchGitHubDiff: async (projectId, branch) => {
+    try {
+      const params = branch ? { branch } : {}
+      const { data } = await api.get(`/projects/${projectId}/github/diff`, { params })
+      return { success: true, diff: data }
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Failed to compute changes'
       return { success: false, error: msg }
+    }
+  },
+
+  fetchPushHistory: async (projectId) => {
+    try {
+      const { data } = await api.get(`/projects/${projectId}/github/pushes`)
+      return { success: true, pushes: data.pushes || [] }
+    } catch {
+      return { success: false, pushes: [] }
     }
   },
 
