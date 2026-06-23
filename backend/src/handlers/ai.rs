@@ -32,7 +32,7 @@ pub struct ChatResponse {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AiFileSnippet {
     pub path: String,
     pub content: String,
@@ -116,44 +116,118 @@ fn messages_request_code_edit(messages: &[ChatMessage]) -> bool {
 }
 
 fn build_context_block(body: &AiProjectRequest) -> String {
+    const MAX_FILE_CHARS: usize = 10_000;
+    const MAX_TERMINAL_CHARS: usize = 5_000;
+    const MAX_ERRORS_CHARS: usize = 3_000;
+    const MAX_ACTIVE_CHARS: usize = 12_000;
+    const MAX_FILES: usize = 6;
+    const MAX_AUDIT_FINDINGS: usize = 12;
+
+    fn truncate_tail(s: &str, max: usize) -> String {
+        if s.len() <= max {
+            return s.to_string();
+        }
+        format!("...(truncated {} chars)\n{}", s.len() - max, &s[s.len() - max..])
+    }
+
+    let active_content = truncate_tail(&body.active_content, MAX_ACTIVE_CHARS);
+
     let mut sections = vec![
         format!("NETWORK: {}", body.network),
         format!("SOROBAN SDK VERSION: {}", body.sdk_version),
         format!("ACTIVE FILE: {}", body.active_file),
         format!(
             "ACTIVE FILE CONTENT:\n```rust\n{}\n```",
-            body.active_content
+            active_content
         ),
     ];
 
     if !body.files.is_empty() {
+        let mut prioritized: Vec<_> = body.files.iter().collect();
+        prioritized.sort_by_key(|f| {
+            if f.path == body.active_file {
+                0
+            } else if f.path.ends_with("Cargo.toml") {
+                1
+            } else {
+                2
+            }
+        });
+
         let mut files_block = String::from("ALL PROJECT FILES:\n");
-        for f in &body.files {
-            files_block.push_str(&format!("\n--- {} ---\n{}\n", f.path, f.content));
+        for f in prioritized.into_iter().take(MAX_FILES) {
+            let content = truncate_tail(&f.content, MAX_FILE_CHARS);
+            files_block.push_str(&format!("\n--- {} ---\n{}\n", f.path, content));
+        }
+        if body.files.len() > MAX_FILES {
+            files_block.push_str(&format!(
+                "\n... {} additional file(s) omitted for size limits\n",
+                body.files.len() - MAX_FILES
+            ));
         }
         sections.push(files_block);
     }
 
     if !body.terminal_output.trim().is_empty() {
-        sections.push(format!("TERMINAL OUTPUT:\n{}", body.terminal_output));
+        sections.push(format!(
+            "TERMINAL OUTPUT:\n{}",
+            truncate_tail(&body.terminal_output, MAX_TERMINAL_CHARS)
+        ));
     }
 
     if !body.errors.trim().is_empty() {
-        sections.push(format!("ERRORS / WARNINGS:\n{}", body.errors));
+        sections.push(format!(
+            "ERRORS / WARNINGS:\n{}",
+            truncate_tail(&body.errors, MAX_ERRORS_CHARS)
+        ));
     }
 
     if !body.audit_findings.is_empty() {
         let mut audit = String::from("SCOUT AUDIT FINDINGS:\n");
-        for f in &body.audit_findings {
+        for f in body.audit_findings.iter().take(MAX_AUDIT_FINDINGS) {
             audit.push_str(&format!(
                 "- [{}] {} ({}:{}): {}\n  Recommendation: {}\n",
                 f.severity, f.title, f.file, f.line_start, f.description, f.recommendation
+            ));
+        }
+        if body.audit_findings.len() > MAX_AUDIT_FINDINGS {
+            audit.push_str(&format!(
+                "... {} more finding(s) omitted\n",
+                body.audit_findings.len() - MAX_AUDIT_FINDINGS
             ));
         }
         sections.push(audit);
     }
 
     sections.join("\n\n")
+}
+
+fn groq_error_message(status: reqwest::StatusCode, body: &str) -> String {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(msg) = v["error"]["message"].as_str() {
+            let lower = msg.to_lowercase();
+            if lower.contains("rate limit") || lower.contains("rate_limit") {
+                return "AI rate limit reached. Wait a few seconds and try again.".into();
+            }
+            if lower.contains("token") || lower.contains("context") || lower.contains("too large") {
+                return "Request too large for the AI model. Clear the terminal and try again.".into();
+            }
+            if lower.contains("invalid api key") || lower.contains("invalid_api_key") {
+                return "Invalid Groq API key. Set GROQ_API_KEY on the server.".into();
+            }
+            return msg.to_string();
+        }
+    }
+
+    match status.as_u16() {
+        401 | 403 => "Invalid Groq API key. Set GROQ_API_KEY on the server.".into(),
+        429 => "AI rate limit reached. Wait a few seconds and try again.".into(),
+        413 => "Request too large. Clear the terminal and try again.".into(),
+        _ => format!(
+            "AI service error (HTTP {}). Please try again.",
+            status.as_u16()
+        ),
+    }
 }
 
 fn strip_code_fences(text: &str) -> String {
@@ -203,7 +277,11 @@ async fn call_groq(
         "max_tokens": max_tokens,
         "temperature": temperature
     });
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
     let resp = http
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -211,15 +289,24 @@ async fn call_groq(
         .json(&payload)
         .send()
         .await
-        .map_err(|_| AppError::ServiceUnavailable("AI service unavailable".into()))?;
+        .map_err(|e| {
+            tracing::warn!("Groq request failed: {}", e);
+            if e.is_timeout() {
+                AppError::ServiceUnavailable(
+                    "AI request timed out. Try again or clear the terminal to reduce context size.".into(),
+                )
+            } else {
+                AppError::ServiceUnavailable(
+                    "AI service is unreachable. Check your network and try again.".into(),
+                )
+            }
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
         tracing::warn!("Groq API error {}: {}", status, body_text);
-        return Err(AppError::ServiceUnavailable(
-            "AI service returned an error. Please try again.".into(),
-        ));
+        return Err(AppError::ServiceUnavailable(groq_error_message(status, &body_text)));
     }
     let data: serde_json::Value = resp
         .json()
@@ -324,7 +411,10 @@ pub async fn chat(
         "temperature": 0.7
     });
 
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let resp = http
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -332,7 +422,8 @@ pub async fn chat(
         .json(&payload)
         .send()
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            tracing::warn!("Groq chat request failed: {}", e);
             AppError::ServiceUnavailable(
                 "AI service is currently unavailable. Please try again in a moment.".into(),
             )
@@ -342,9 +433,7 @@ pub async fn chat(
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
         tracing::warn!("Groq API error {}: {}", status, body_text);
-        return Err(AppError::ServiceUnavailable(
-            "AI service returned an error. Please try again.".into(),
-        ));
+        return Err(AppError::ServiceUnavailable(groq_error_message(status, &body_text)));
     }
 
     let data: serde_json::Value = resp.json().await.map_err(|_| {
@@ -386,7 +475,11 @@ pub async fn ai_fix(
         .config
         .groq_api_key
         .as_deref()
-        .ok_or_else(|| AppError::ServiceUnavailable("GROQ_API_KEY not configured".into()))?;
+        .ok_or_else(|| {
+            AppError::ServiceUnavailable(
+                "AI Fix is not configured. Set GROQ_API_KEY on the server.".into(),
+            )
+        })?;
 
     let system = format!(
         "{SOROBAN_EXPERT_SYSTEM}\n\n\
@@ -418,15 +511,52 @@ pub async fn ai_fix(
         build_context_block(&body)
     );
 
-    let raw = call_groq(
+    let raw = match call_groq(
         api_key,
         &state.config.groq_model,
         &system,
         &user,
-        4096,
+        2048,
         0.15,
     )
-    .await?;
+    .await
+    {
+        Ok(raw) => raw,
+        Err(e) => {
+            // Retry with a smaller payload (active file + errors only)
+            let compact = AiProjectRequest {
+                active_file: body.active_file.clone(),
+                active_content: body.active_content.clone(),
+                files: body
+                    .files
+                    .iter()
+                    .filter(|f| {
+                        f.path == body.active_file || f.path.ends_with("Cargo.toml")
+                    })
+                    .cloned()
+                    .collect(),
+                terminal_output: String::new(),
+                errors: body.errors.clone(),
+                audit_findings: body.audit_findings.iter().take(5).cloned().collect(),
+                network: body.network.clone(),
+                sdk_version: body.sdk_version.clone(),
+            };
+            let compact_user = format!(
+                "Analyze and propose fixes for errors and/or audit findings.\n\n{}",
+                build_context_block(&compact)
+            );
+            tracing::info!("AI fix retrying with compact context after: {:?}", e);
+            call_groq(
+                api_key,
+                &state.config.groq_model,
+                &system,
+                &compact_user,
+                2048,
+                0.15,
+            )
+            .await?
+        }
+    };
 
     if raw.trim().is_empty() {
         return Err(AppError::ServiceUnavailable(

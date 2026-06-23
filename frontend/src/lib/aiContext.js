@@ -9,11 +9,19 @@ export function buildTerminalOutput(outputLog) {
   return outputLog.map((l) => l.line).join('\n')
 }
 
+function truncateTail(text, max) {
+  if (!text || text.length <= max) return text || ''
+  return `...(truncated ${text.length - max} chars)\n${text.slice(-max)}`
+}
+
 export function buildErrorOutput(outputLog) {
-  return outputLog
-    .filter((l) => l.level === 'error' || l.level === 'warning')
-    .map((l) => l.line)
-    .join('\n')
+  return truncateTail(
+    outputLog
+      .filter((l) => l.level === 'error' || l.level === 'warning')
+      .map((l) => l.line)
+      .join('\n'),
+    3000
+  )
 }
 
 export function buildExplainChatMessage({ activeFile, editorContent, outputLog }) {
@@ -55,18 +63,22 @@ export function buildAiContext(state, network = 'testnet') {
   const activePath = activeFile?.file_path || 'src/lib.rs'
   const projectFiles = files
     .filter((f) => f.language !== 'wasm' && !f.file_path?.endsWith('.wasm'))
+    .slice(0, 6)
     .map((f) => ({
       path: f.file_path,
-      content: f.file_path === activePath ? editorContent : (f.content || ''),
+      content: truncateTail(
+        f.file_path === activePath ? editorContent : (f.content || ''),
+        10000
+      ),
     }))
 
   return {
     active_file: activePath,
-    active_content: editorContent,
+    active_content: truncateTail(editorContent || '', 12000),
     files: projectFiles,
-    terminal_output: buildTerminalOutput(outputLog),
+    terminal_output: truncateTail(buildTerminalOutput(outputLog), 5000),
     errors: buildErrorOutput(outputLog),
-    audit_findings: (auditFindings || []).map((f) => ({
+    audit_findings: (auditFindings || []).slice(0, 12).map((f) => ({
       severity: f.severity,
       title: f.title,
       description: f.description,
