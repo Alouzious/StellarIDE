@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
     errors::{AppError, Result},
+    handlers::collab::{ensure_project_editor, ensure_project_member},
     middleware::auth::AuthUser,
     AppState,
 };
@@ -26,10 +27,32 @@ pub struct ChatResponse {
     pub message: String,
 }
 
+fn messages_request_code_edit(messages: &[ChatMessage]) -> bool {
+    const EDIT_HINTS: &[&str] = &[
+        "fix this",
+        "fix the",
+        "rewrite",
+        "change the code",
+        "modify the code",
+        "update the code",
+        "apply this fix",
+        "generate code",
+        "write code",
+        "implement ",
+    ];
+    messages.iter().any(|m| {
+        if m.role != "user" {
+            return false;
+        }
+        let lower = m.content.to_lowercase();
+        EDIT_HINTS.iter().any(|hint| lower.contains(hint))
+    })
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 pub async fn chat(
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     State(state): State<AppState>,
     Json(body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>> {
@@ -103,6 +126,20 @@ pub async fn chat(
     Ok(Json(ChatResponse { message: content }))
 }
 
+/// Project-scoped chat: viewers may ask questions but not request code edits.
+pub async fn project_chat(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>> {
+    let role = ensure_project_member(&state, project_id, auth.id).await?;
+    if role == "viewer" && messages_request_code_edit(&body.messages) {
+        return Err(AppError::Forbidden);
+    }
+    chat(Extension(auth), State(state), Json(body)).await
+}
+
 // ── AI Fix Request ────────────────────────────────────────────────────────────
 #[derive(Debug, Deserialize)]
 pub struct AiCodeRequest {
@@ -147,11 +184,13 @@ async fn call_groq(api_key: &str, model: &str, system: &str, user: &str) -> Resu
 }
 
 pub async fn ai_fix(
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     State(state): State<AppState>,
-    Path(_project_id): Path<Uuid>,
+    Path(project_id): Path<Uuid>,
     Json(body): Json<AiCodeRequest>,
 ) -> Result<Json<AiCodeResponse>> {
+    ensure_project_editor(&state, project_id, auth.id).await?;
+
     let api_key = state.config.groq_api_key.as_deref()
         .ok_or_else(|| AppError::ServiceUnavailable("GROQ_API_KEY not configured".into()))?;
 
@@ -167,11 +206,13 @@ pub async fn ai_fix(
 }
 
 pub async fn ai_explain(
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     State(state): State<AppState>,
-    Path(_project_id): Path<Uuid>,
+    Path(project_id): Path<Uuid>,
     Json(body): Json<AiCodeRequest>,
 ) -> Result<Json<AiCodeResponse>> {
+    ensure_project_member(&state, project_id, auth.id).await?;
+
     let api_key = state.config.groq_api_key.as_deref()
         .ok_or_else(|| AppError::ServiceUnavailable("GROQ_API_KEY not configured".into()))?;
 

@@ -787,7 +787,10 @@ pub async fn list_pushes(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     // Ensure the caller can see this project.
-    let _ = resolve_collab_role(&state, project_id, auth.id).await?;
+    let role = resolve_collab_role(&state, project_id, auth.id).await?;
+    if role == "none" {
+        return Err(AppError::Forbidden);
+    }
 
     let pushes = sqlx::query_as::<_, crate::models::github_push::GithubPush>(
         "SELECT * FROM github_pushes WHERE project_id = $1 ORDER BY created_at DESC LIMIT 30",
