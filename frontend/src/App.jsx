@@ -7,6 +7,7 @@ import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
+import ProjectSettingsPage from './pages/ProjectSettingsPage'
 import IdePage from './pages/IdePage'
 import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import NotFoundPage from './pages/NotFoundPage'
@@ -60,6 +61,7 @@ export default function App() {
         {/* Protected pages (redirect to /login if not authenticated) */}
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
           <Route path="/ide/:id" element={<IdePage />} />
         </Route>
 

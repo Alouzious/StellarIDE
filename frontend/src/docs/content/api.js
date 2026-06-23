@@ -93,6 +93,8 @@ GET  /api/v1/projects/:id/collaborators
 POST /api/v1/projects/:id/collaborators/invite
 POST /api/v1/projects/:id/collaborators/join
 GET  /api/v1/projects/:id/collaborators/me
+PUT  /api/v1/projects/:id/collaborators/:user_id
+DELETE /api/v1/projects/:id/collaborators/:user_id
 \`\`\``,
     },
     {

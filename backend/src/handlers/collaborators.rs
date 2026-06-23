@@ -30,6 +30,11 @@ pub struct CreateInviteRequest {
     pub role: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCollaboratorRequest {
+    pub role: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct InviteClaims {
     sub: Uuid,
@@ -175,6 +180,89 @@ pub async fn get_my_role(
 ) -> Result<Json<serde_json::Value>> {
     let role = resolve_collab_role(&state, project_id, auth.id).await?;
     Ok(Json(serde_json::json!({ "role": role })))
+}
+
+pub async fn update_collaborator(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path((project_id, user_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateCollaboratorRequest>,
+) -> Result<Json<CollaboratorResponse>> {
+    ensure_owner(&state, project_id, auth.id).await?;
+
+    let owner_id: Uuid = sqlx::query_scalar("SELECT user_id FROM projects WHERE id = $1")
+        .bind(project_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    if user_id == owner_id {
+        return Err(AppError::BadRequest("Cannot change the project owner's role".into()));
+    }
+
+    let role = match body.role.as_str() {
+        "viewer" | "editor" => body.role.clone(),
+        _ => return Err(AppError::BadRequest("role must be viewer or editor".into())),
+    };
+
+    let result = sqlx::query(
+        "UPDATE project_collaborators SET role = $1 WHERE project_id = $2 AND user_id = $3",
+    )
+    .bind(&role)
+    .bind(project_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+
+    let row = sqlx::query_as::<_, (Uuid, String, String)>(
+        r#"SELECT u.id, u.email, c.role FROM project_collaborators c
+           JOIN users u ON u.id = c.user_id
+           WHERE c.project_id = $1 AND c.user_id = $2"#,
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(CollaboratorResponse {
+        user_id: row.0,
+        email: row.1,
+        role: row.2,
+    }))
+}
+
+pub async fn remove_collaborator(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path((project_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_owner(&state, project_id, auth.id).await?;
+
+    let owner_id: Uuid = sqlx::query_scalar("SELECT user_id FROM projects WHERE id = $1")
+        .bind(project_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    if user_id == owner_id {
+        return Err(AppError::BadRequest("Cannot remove the project owner".into()));
+    }
+
+    let result = sqlx::query(
+        "DELETE FROM project_collaborators WHERE project_id = $1 AND user_id = $2",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn ensure_owner(state: &AppState, project_id: Uuid, user_id: Uuid) -> Result<()> {

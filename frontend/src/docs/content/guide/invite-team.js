@@ -5,8 +5,10 @@ export default {
   sections: [
     {
       id: 'share',
-      title: 'Open Share',
-      body: `In the IDE, click **Share** in the top bar. Choose **Editor** (can edit) or **Viewer** (read-only).`,
+      title: 'Open project settings',
+      body: `On the dashboard, open a project card menu and choose **Settings**, or click **Settings** in the IDE toolbar.
+
+Generate an invite link with **Editor** (can edit) or **Viewer** (read-only) access. Change roles or remove collaborators from the settings page.`,
     },
     {
       id: 'invite-link',

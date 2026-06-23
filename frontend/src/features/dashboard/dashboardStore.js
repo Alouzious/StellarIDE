@@ -16,6 +16,15 @@ const useDashboardStore = create((set) => ({
     }
   },
 
+  getProject: async (id) => {
+    try {
+      const { data } = await api.get(`/projects/${id}`)
+      return { success: true, project: data }
+    } catch (err) {
+      return { success: false, error: err.response?.data?.error || 'Failed to load project' }
+    }
+  },
+
   createProject: async (name, description, templateId = 'blank') => {
     try {
       const { data } = await api.post('/projects', {

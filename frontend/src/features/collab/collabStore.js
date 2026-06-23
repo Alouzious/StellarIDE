@@ -79,6 +79,24 @@ const useCollabStore = create((set, get) => ({
     }
   },
 
+  updateCollaboratorRole: async (projectId, userId, role) => {
+    try {
+      const { data } = await api.put(`/projects/${projectId}/collaborators/${userId}`, { role })
+      return { success: true, collaborator: data }
+    } catch (err) {
+      return { success: false, error: err.response?.data?.error || 'Failed to update role' }
+    }
+  },
+
+  removeCollaborator: async (projectId, userId) => {
+    try {
+      await api.delete(`/projects/${projectId}/collaborators/${userId}`)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.response?.data?.error || 'Failed to remove collaborator' }
+    }
+  },
+
   reset: () =>
     set({
       presence: [],

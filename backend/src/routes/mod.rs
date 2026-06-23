@@ -133,6 +133,11 @@ pub fn build_router(state: AppState) -> Router {
             "/projects/:id/collaborators/me",
             get(handlers::collaborators::get_my_role),
         )
+        .route(
+            "/projects/:id/collaborators/:user_id",
+            put(handlers::collaborators::update_collaborator)
+                .delete(handlers::collaborators::remove_collaborator),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()

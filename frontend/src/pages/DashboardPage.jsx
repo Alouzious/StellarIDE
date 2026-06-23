@@ -1,23 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
-  Plus, Code2, Trash2, Edit3, ExternalLink, FolderOpen,
-  Clock, LogOut, Search, MoreVertical
+  Plus, Code2, ExternalLink, FolderOpen,
+  Clock, LogOut, Search, MoreVertical, Settings,
 } from 'lucide-react'
 import GitHubIcon from '../components/icons/GitHubIcon'
 import useAuthStore from '../features/auth/authStore'
 import useDashboardStore from '../features/dashboard/dashboardStore'
 import useGitHubStore from '../features/github/githubStore'
 import Button from '../components/ui/Button'
-import Modal from '../components/ui/Modal'
-import Input from '../components/ui/Input'
 import ImportGitHubModal from '../components/ImportGitHubModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
 import TemplatePickerModal from '../components/TemplatePickerModal'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
-function ProjectCard({ project, onEdit, onDelete, onOpen }) {
+function ProjectCard({ project, onOpen, onSettings, isOwner }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const updatedAt = new Date(project.updated_at || project.created_at).toLocaleDateString()
 
@@ -35,7 +33,12 @@ function ProjectCard({ project, onEdit, onDelete, onOpen }) {
             )}
           </div>
         </div>
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 flex items-center gap-2">
+          {!isOwner && (
+            <span className="text-[10px] uppercase tracking-wide text-stellar-muted bg-stellar-surface border border-stellar-border px-1.5 py-0.5 rounded">
+              Shared
+            </span>
+          )}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="p-1.5 text-stellar-muted hover:text-white hover:bg-stellar-surface rounded-md transition-colors opacity-0 group-hover:opacity-100"
@@ -43,18 +46,12 @@ function ProjectCard({ project, onEdit, onDelete, onOpen }) {
             <MoreVertical className="w-4 h-4" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-8 w-36 bg-stellar-surface border border-stellar-border rounded-lg shadow-xl z-10 py-1">
+            <div className="absolute right-0 top-8 w-40 bg-stellar-surface border border-stellar-border rounded-lg shadow-xl z-10 py-1">
               <button
-                onClick={() => { onEdit(project); setMenuOpen(false) }}
+                onClick={() => { onSettings(project); setMenuOpen(false) }}
                 className="flex items-center gap-2 w-full px-3 py-2 text-sm text-stellar-muted hover:text-white hover:bg-stellar-card transition-colors"
               >
-                <Edit3 className="w-3.5 h-3.5" /> Rename
-              </button>
-              <button
-                onClick={() => { onDelete(project); setMenuOpen(false) }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-stellar-card transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Delete
+                <Settings className="w-3.5 h-3.5" /> Settings
               </button>
             </div>
           )}
@@ -82,7 +79,7 @@ function ProjectCard({ project, onEdit, onDelete, onOpen }) {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
-  const { projects, loading, fetchProjects, createProject, updateProject, deleteProject } = useDashboardStore()
+  const { projects, loading, fetchProjects, createProject } = useDashboardStore()
   const { linkProjectRepo } = useGitHubStore()
   const { toasts, toast, removeToast } = useToast()
 
@@ -93,8 +90,6 @@ export default function DashboardPage() {
 
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
   const [githubOpen, setGithubOpen] = useState(false)
   const [formData, setFormData] = useState({ name: '', description: '', repoUrl: '', branch: 'main' })
   const [selectedTemplateId, setSelectedTemplateId] = useState('hello-world')
@@ -147,32 +142,6 @@ export default function DashboardPage() {
       setFormData({ name: '', description: '', repoUrl: '', branch: 'main' })
       setLinkAfterCreate(false)
       if (result.project?.id) navigate(`/ide/${result.project.id}`)
-    } else {
-      toast.error(result.error)
-    }
-  }
-
-  const handleEdit = async () => {
-    if (!formData.name.trim()) { setFormError('Project name is required'); return }
-    setSubmitting(true)
-    const result = await updateProject(editTarget.id, { name: formData.name.trim(), description: formData.description.trim() })
-    setSubmitting(false)
-    if (result.success) {
-      toast.success('Project updated!')
-      setEditTarget(null)
-      setFormData({ name: '', description: '' })
-    } else {
-      toast.error(result.error)
-    }
-  }
-
-  const handleDelete = async () => {
-    setSubmitting(true)
-    const result = await deleteProject(deleteTarget.id)
-    setSubmitting(false)
-    if (result.success) {
-      toast.success('Project deleted')
-      setDeleteTarget(null)
     } else {
       toast.error(result.error)
     }
@@ -282,9 +251,9 @@ export default function DashboardPage() {
               <ProjectCard
                 key={project.id}
                 project={project}
+                isOwner={project.user_id === user?.id}
                 onOpen={(p) => navigate(`/ide/${p.id}`)}
-                onEdit={(p) => { setEditTarget(p); setFormData({ name: p.name, description: p.description || '' }); setFormError('') }}
-                onDelete={(p) => setDeleteTarget(p)}
+                onSettings={(p) => navigate(`/projects/${p.id}/settings`)}
               />
             ))}
           </div>
@@ -304,51 +273,6 @@ export default function DashboardPage() {
         selectedTemplateId={selectedTemplateId}
         onSelectTemplate={setSelectedTemplateId}
       />
-
-      {/* Edit Modal */}
-      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Rename Project">
-        <div className="space-y-4">
-          <Input
-            label="Project name"
-            value={formData.name}
-            onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormError('') }}
-            error={formError}
-            autoFocus
-          />
-          <Input
-            label="Description (optional)"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          />
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1 justify-center" onClick={() => setEditTarget(null)}>
-              Cancel
-            </Button>
-            <Button className="flex-1 justify-center" loading={submitting} onClick={handleEdit}>
-              Save
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delete Modal */}
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Project">
-        <div className="space-y-4">
-          <p className="text-sm text-stellar-muted">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-stellar-heading">{deleteTarget?.name}</span>?{' '}
-            This action cannot be undone.
-          </p>
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1 justify-center" onClick={() => setDeleteTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" className="flex-1 justify-center" loading={submitting} onClick={handleDelete}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 

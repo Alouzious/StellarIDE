@@ -7,7 +7,7 @@ import {
   Wallet, Users, ArrowLeft, Loader2, CheckCircle, XCircle,
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
-  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Share2, Link2,
+  Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Settings, Link2,
   AlertCircle,
 } from 'lucide-react'
 import GitHubIcon from '../components/icons/GitHubIcon'
@@ -29,7 +29,6 @@ import AuditResultsPanel from '../components/AuditResultsPanel'
 import AiExplainPanel from '../components/AiExplainPanel'
 import AiFixPanel from '../components/AiFixPanel'
 import PresenceBar from '../components/PresenceBar'
-import ShareModal from '../components/ShareModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
 import PushModal from '../components/PushModal'
 import api, { getWsBaseUrl } from '../services/api'
@@ -899,7 +898,6 @@ export default function IdePage() {
   const [terminalHeight, setTerminalHeight] = useState(176)
   const [chatWidth, setChatWidth] = useState(320)
   const [pushModalOpen, setPushModalOpen] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const projectCollabRef = useRef(null)
   const collabCallbacksRef = useRef({})
@@ -1275,11 +1273,12 @@ export default function IdePage() {
           </button>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setShareOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-md text-xs text-purple-400 font-medium hover:bg-purple-500/20 transition-all"
+              onClick={() => navigate(`/projects/${projectId}/settings`)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 rounded-md text-xs text-stellar-muted hover:text-white font-medium transition-all"
+              title="Project settings"
             >
-              <Share2 className="w-3 h-3" />
-              <span className="hidden md:inline">Share</span>
+              <Settings className="w-3 h-3" />
+              <span className="hidden md:inline">Settings</span>
             </button>
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-md">
               <Users className="w-3 h-3 text-purple-400" />
@@ -1513,7 +1512,6 @@ export default function IdePage() {
       </div>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-      <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} projectId={projectId} />
       <LinkGitHubModal
         open={linkOpen}
         onClose={() => setLinkOpen(false)}
