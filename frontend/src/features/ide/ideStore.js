@@ -1,7 +1,21 @@
 import { create } from 'zustand'
 import api from '../../services/api'
+import { streamSsePost } from '../../services/sseStream'
 import { Keypair } from '@stellar/stellar-sdk'
 import { deployContractWithWallet } from '../../lib/sorobanDeploy'
+
+function inferLogLevel(line) {
+  const lower = `${line}`.toLowerCase()
+  if (lower.includes('error') || line.startsWith('✖') || line.startsWith('✗')) return 'error'
+  if (lower.includes('warning') || line.startsWith('⚠')) return 'warning'
+  if (/finished|✓|✔|success/i.test(line)) return 'success'
+  if (/compiling|running/i.test(line)) return 'running'
+  return 'info'
+}
+
+function formatTimestamp() {
+  return new Date().toLocaleTimeString('en-GB', { hour12: false })
+}
 
 const DEFAULT_LIB_CONTENT = `#![no_std]
 use soroban_sdk::{contract, contractimpl, vec, Env, Symbol, symbol_short, Vec};
@@ -59,6 +73,8 @@ const useIdeStore = create((set, get) => ({
   activeFile: null,
   editorContent: DEFAULT_LIB_CONTENT,
   outputLog: [],
+  terminalOperation: null,
+  streamAbortController: null,
   compileStatus: 'idle',
   testStatus: 'idle',
   deployStatus: 'idle',
@@ -222,8 +238,66 @@ const useIdeStore = create((set, get) => ({
     }
   },
 
-  appendLog: (line, level = 'info') =>
-    set((state) => ({ outputLog: [...state.outputLog, { id: nextLogId(), line, level }] })),
+  appendLog: (line, level) =>
+    set((state) => ({
+      outputLog: [
+        ...state.outputLog,
+        {
+          id: nextLogId(),
+          line,
+          level: level || inferLogLevel(line),
+          timestamp: formatTimestamp(),
+        },
+      ],
+    })),
+
+  appendStreamLine: (line) => {
+    const { appendLog } = get()
+    if (line === '[DONE]') {
+      appendLog('✓ Completed', 'success')
+      return 'done'
+    }
+    if (line.startsWith('[ERROR]')) {
+      const detail = line.replace('[ERROR]', '').trim()
+      appendLog(`✗ Failed${detail ? ` — ${detail}` : ''}`, 'error')
+      return 'error'
+    }
+    appendLog(line)
+    return 'line'
+  },
+
+  stopStream: () => {
+    get().streamAbortController?.abort()
+    set({ streamAbortController: null })
+  },
+
+  beginRemoteTerminal: (msg) => {
+    const { clearLog, appendLog } = get()
+    clearLog()
+    const op = msg.operation
+    set({
+      terminalOperation: op,
+      compileStatus: op === 'compile' ? 'running' : get().compileStatus,
+      testStatus: op === 'test' ? 'running' : get().testStatus,
+      deployStatus: op === 'deploy' ? 'running' : get().deployStatus,
+    })
+    appendLog(`[${msg.user_name}] ${op} started…`, 'info')
+  },
+
+  finishRemoteTerminal: (msg) => {
+    const { appendLog } = get()
+    const op = msg.operation
+    const status = msg.success ? 'success' : 'error'
+    set({
+      terminalOperation: null,
+      compileStatus: op === 'compile' ? status : get().compileStatus,
+      testStatus: op === 'test' ? status : get().testStatus,
+      deployStatus: op === 'deploy' ? status : get().deployStatus,
+    })
+    if (!msg.success && msg.message) {
+      appendLog(`✗ ${msg.user_name} — ${msg.message}`, 'error')
+    }
+  },
 
   clearLog: () => set({ outputLog: [] }),
 
@@ -260,40 +334,79 @@ const useIdeStore = create((set, get) => ({
 
   // ── IDE actions ──────────────────────────────────────────────────────────
   runCompile: async (projectId) => {
-    const { appendLog, loadFiles } = get()
-    set({ compileStatus: 'running' })
+    const { clearLog, appendLog, loadFiles, stopStream, appendStreamLine } = get()
+    stopStream()
+    const controller = new AbortController()
+    set({
+      compileStatus: 'running',
+      terminalOperation: 'compile',
+      streamAbortController: controller,
+    })
+    clearLog()
     appendLog('$ cargo build --target wasm32-unknown-unknown --release', 'info')
-    appendLog('   Starting compilation...', 'info')
+
+    let wasmSaved = false
     try {
-      const { data } = await api.post(`/projects/${projectId}/compile`)
-      set({ compileStatus: data.success ? 'success' : 'error' })
-      appendLog((data.success ? '✔  ' : '✖  ') + data.message, data.success ? 'success' : 'error')
-      ;(data.logs || []).forEach(l => appendLog(l, 'info'))
-      if (data.wasm_artifact) appendLog(`   WASM: ${data.wasm_artifact}`, 'success')
-      if (data.wasm_saved) {
-        appendLog('   WASM saved — ready to deploy without recompiling ✓', 'success')
-        await loadFiles(projectId)
+      await streamSsePost(`/projects/${projectId}/compile/stream`, {
+        signal: controller.signal,
+        onLine: (line) => {
+          if (line.includes('WASM saved')) wasmSaved = true
+          const result = appendStreamLine(line)
+          if (result === 'done') {
+            set({ compileStatus: 'success', terminalOperation: null })
+          } else if (result === 'error') {
+            set({ compileStatus: 'error', terminalOperation: null })
+          }
+        },
+      })
+      if (get().compileStatus === 'running') {
+        set({ compileStatus: 'success', terminalOperation: null })
       }
+      if (wasmSaved) await loadFiles(projectId)
     } catch (err) {
-      set({ compileStatus: 'error' })
-      appendLog(`✖  ${err.response?.data?.error || 'Compilation failed.'}`, 'error')
-      ;(err.response?.data?.logs || []).forEach(l => appendLog(l, 'info'))
+      if (err.name === 'AbortError') return
+      set({ compileStatus: 'error', terminalOperation: null })
+      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      if (err.message) appendLog(`✖  ${err.message}`, 'error')
+    } finally {
+      set({ streamAbortController: null, terminalOperation: null })
     }
   },
 
   runTest: async (projectId) => {
-    const { appendLog } = get()
-    set({ testStatus: 'running' })
+    const { clearLog, appendLog, stopStream, appendStreamLine } = get()
+    stopStream()
+    const controller = new AbortController()
+    set({
+      testStatus: 'running',
+      terminalOperation: 'test',
+      streamAbortController: controller,
+    })
+    clearLog()
     appendLog('$ cargo test', 'info')
-    appendLog('   Running tests...', 'info')
+
     try {
-      const { data } = await api.post(`/projects/${projectId}/test`)
-      set({ testStatus: data.success ? 'success' : 'error' })
-      appendLog((data.success ? '✔  ' : '✖  ') + data.message, data.success ? 'success' : 'error')
-      ;(data.logs || []).forEach(l => appendLog(l, 'info'))
+      await streamSsePost(`/projects/${projectId}/test/stream`, {
+        signal: controller.signal,
+        onLine: (line) => {
+          const result = appendStreamLine(line)
+          if (result === 'done') {
+            set({ testStatus: 'success', terminalOperation: null })
+          } else if (result === 'error') {
+            set({ testStatus: 'error', terminalOperation: null })
+          }
+        },
+      })
+      if (get().testStatus === 'running') {
+        set({ testStatus: 'success', terminalOperation: null })
+      }
     } catch (err) {
-      set({ testStatus: 'error' })
-      appendLog(`✖  ${err.response?.data?.error || 'Tests failed.'}`, 'error')
+      if (err.name === 'AbortError') return
+      set({ testStatus: 'error', terminalOperation: null })
+      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      if (err.message) appendLog(`✖  ${err.message}`, 'error')
+    } finally {
+      set({ streamAbortController: null, terminalOperation: null })
     }
   },
 
@@ -306,13 +419,14 @@ const useIdeStore = create((set, get) => ({
       files,
       signTransaction,
     } = options
-    const { appendLog } = get()
-    set({ deployStatus: useExternalWallet ? 'signing' : 'running' })
-    appendLog('$ stellar contract deploy', 'info')
-    appendLog(`   Network: ${network}`, 'info')
-    appendLog(`   Wallet: ${walletAddress?.slice(0, 8)}...`, 'info')
+    const { appendLog, clearLog } = get()
 
     if (useExternalWallet && signTransaction) {
+      clearLog()
+      set({ deployStatus: 'signing', terminalOperation: 'deploy' })
+      appendLog('$ stellar contract deploy', 'info')
+      appendLog(`   Network: ${network}`, 'info')
+      appendLog(`   Wallet: ${walletAddress?.slice(0, 8)}...`, 'info')
       try {
         const wasmFile = (files || get().files).find(
           (f) => f.file_path?.endsWith('.wasm') || f.language === 'wasm'
@@ -345,24 +459,65 @@ const useIdeStore = create((set, get) => ({
           error: msg,
           rejected: msg.toLowerCase().includes('rejected'),
         }
+      } finally {
+        set({ terminalOperation: null })
       }
     }
 
+    return get().runDeployStream(projectId, {
+      walletAddress,
+      network,
+      secretKey,
+    })
+  },
+
+  runDeployStream: async (projectId, { walletAddress, network, secretKey } = {}) => {
+    const { clearLog, appendLog, stopStream, appendStreamLine } = get()
+    stopStream()
+    const controller = new AbortController()
+    set({
+      deployStatus: 'running',
+      terminalOperation: 'deploy',
+      streamAbortController: controller,
+    })
+    clearLog()
+    appendLog('$ stellar contract deploy', 'info')
+    appendLog(`   Network: ${network}`, 'info')
+    appendLog(`   Wallet: ${walletAddress?.slice(0, 8)}...`, 'info')
+
+    let contractId = null
     try {
-      const { data } = await api.post(`/projects/${projectId}/deploy`, {
-        wallet_address: walletAddress,
-        network,
-        secret_key: secretKey,
+      await streamSsePost(`/projects/${projectId}/deploy/stream`, {
+        signal: controller.signal,
+        body: {
+          wallet_address: walletAddress,
+          network,
+          secret_key: secretKey,
+        },
+        onLine: (line) => {
+          if (line.startsWith('   Contract ID:')) {
+            contractId = line.replace('   Contract ID:', '').trim()
+          }
+          const result = appendStreamLine(line)
+          if (result === 'done') {
+            set({ deployStatus: 'success', terminalOperation: null })
+          } else if (result === 'error') {
+            set({ deployStatus: 'error', terminalOperation: null })
+          }
+        },
       })
-      set({ deployStatus: data.success ? 'success' : 'error' })
-      appendLog((data.success ? '✔  ' : '✖  ') + data.message, data.success ? 'success' : 'error')
-      ;(data.logs || []).forEach((l) => appendLog(l, 'info'))
-      if (data.contract_id) appendLog(`   Contract ID: ${data.contract_id}`, 'success')
-      return { success: data.success, contractId: data.contract_id }
+      if (get().deployStatus === 'running') {
+        set({ deployStatus: 'success', terminalOperation: null })
+      }
+      return { success: get().deployStatus === 'success', contractId }
     } catch (err) {
-      set({ deployStatus: 'error' })
-      appendLog(`✖  ${err.response?.data?.error || 'Deploy failed.'}`, 'error')
-      return { success: false, error: err.response?.data?.error || 'Deploy failed.' }
+      if (err.name === 'AbortError') return { success: false }
+      set({ deployStatus: 'error', terminalOperation: null })
+      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      if (err.message) appendLog(`✖  ${err.message}`, 'error')
+      return { success: false, error: err.message }
+    } finally {
+      set({ streamAbortController: null, terminalOperation: null })
     }
   },
 
