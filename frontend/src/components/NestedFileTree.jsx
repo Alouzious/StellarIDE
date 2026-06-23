@@ -21,26 +21,73 @@ function buildTree(files) {
   return root
 }
 
-function TreeNode({ node, depth, activeFile, onSelect, defaultExpanded }) {
+function TreeNode({
+  node,
+  depth,
+  activeFile,
+  onSelect,
+  defaultExpanded,
+  readOnly,
+  onDelete,
+  onRename,
+}) {
   const isFile = node.file && node.children.size === 0
   const [expanded, setExpanded] = useState(defaultExpanded || depth < 2)
+  const [menu, setMenu] = useState(null)
+
+  const handleContextMenu = (e, file) => {
+    if (readOnly || !file) return
+    e.preventDefault()
+    setMenu({ x: e.clientX, y: e.clientY, file })
+  }
 
   if (isFile) {
     const f = node.file
     const active = activeFile?.file_path === f.file_path
     return (
-      <div
-        onClick={() => onSelect(f)}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        className={`flex items-center gap-2 py-1.5 pr-2 rounded cursor-pointer text-xs font-mono transition-colors ${
-          active
-            ? 'bg-stellar-accent/15 text-stellar-accent border border-stellar-accent/20'
-            : 'text-stellar-muted hover:text-stellar-text hover:bg-stellar-surface'
-        }`}
-      >
-        <FileCode className="w-3.5 h-3.5 flex-shrink-0" />
-        <span className="truncate">{node.name}</span>
-      </div>
+      <>
+        <div
+          onClick={() => onSelect(f)}
+          onContextMenu={(e) => handleContextMenu(e, f)}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          className={`flex items-center gap-2 py-1.5 pr-2 rounded cursor-pointer text-xs font-mono transition-colors ${
+            active
+              ? 'bg-stellar-accent/15 text-stellar-accent border border-stellar-accent/20'
+              : 'text-stellar-muted hover:text-stellar-text hover:bg-stellar-surface'
+          }`}
+        >
+          <FileCode className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate">{node.name}</span>
+        </div>
+        {menu?.file?.file_path === f.file_path && (
+          <div
+            className="fixed z-50 bg-stellar-card border border-stellar-border rounded-md shadow-lg py-1 min-w-[120px]"
+            style={{ top: menu.y, left: menu.x }}
+            onMouseLeave={() => setMenu(null)}
+          >
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-stellar-surface"
+              onClick={() => {
+                setMenu(null)
+                onRename?.(f)
+              }}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-stellar-surface"
+              onClick={() => {
+                setMenu(null)
+                onDelete?.(f)
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </>
     )
   }
 
@@ -69,13 +116,23 @@ function TreeNode({ node, depth, activeFile, onSelect, defaultExpanded }) {
           depth={depth + 1}
           activeFile={activeFile}
           onSelect={onSelect}
+          readOnly={readOnly}
+          onDelete={onDelete}
+          onRename={onRename}
         />
       ))}
     </div>
   )
 }
 
-export default function NestedFileTree({ files, activeFile, onSelect }) {
+export default function NestedFileTree({
+  files,
+  activeFile,
+  onSelect,
+  readOnly,
+  onDelete,
+  onRename,
+}) {
   const tree = useMemo(() => buildTree(files), [files])
   const displayFiles = files.length > 0 ? files : [{ file_path: 'src/lib.rs', content: '' }]
   const root = displayFiles.length === 1 && !displayFiles[0].id
@@ -90,7 +147,7 @@ export default function NestedFileTree({ files, activeFile, onSelect }) {
       return a.name.localeCompare(b.name)
     })
     return (
-      <div className="h-full overflow-auto p-2">
+      <div className="h-full overflow-auto p-2" onClick={() => {}}>
         {children.map((child) => (
           <TreeNode
             key={child.name + (child.file?.file_path || '')}
@@ -99,6 +156,9 @@ export default function NestedFileTree({ files, activeFile, onSelect }) {
             activeFile={activeFile}
             onSelect={onSelect}
             defaultExpanded
+            readOnly={readOnly}
+            onDelete={onDelete}
+            onRename={onRename}
           />
         ))}
       </div>
@@ -113,6 +173,9 @@ export default function NestedFileTree({ files, activeFile, onSelect }) {
         activeFile={activeFile}
         onSelect={onSelect}
         defaultExpanded
+        readOnly={readOnly}
+        onDelete={onDelete}
+        onRename={onRename}
       />
     </div>
   )

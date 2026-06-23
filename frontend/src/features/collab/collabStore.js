@@ -4,8 +4,9 @@ import api from '../../services/api'
 const useCollabStore = create((set, get) => ({
   role: 'owner',
   presence: [],
-  connectionStatus: 'idle',
+  fileConnectionStatus: 'idle',
   projectConnectionStatus: 'idle',
+  deployLock: null,
 
   fetchRole: async (projectId) => {
     try {
@@ -22,26 +23,24 @@ const useCollabStore = create((set, get) => ({
 
   setPresence: (users) => set({ presence: users || [] }),
 
-  addPresenceUser: (user) =>
-    set((state) => {
-      const filtered = state.presence.filter((u) => u.user_id !== user.user_id)
-      return { presence: [...filtered, user] }
-    }),
-
-  removePresenceUser: (userId) =>
-    set((state) => ({
-      presence: state.presence.filter((u) => u.user_id !== userId),
-    })),
-
-  setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
+  setFileConnectionStatus: (fileConnectionStatus) => set({ fileConnectionStatus }),
 
   setProjectConnectionStatus: (projectConnectionStatus) =>
     set({ projectConnectionStatus }),
 
-  isReadOnly: () => {
-    const { role } = get()
-    return role === 'viewer'
+  setDeployLock: (deployLock) => set({ deployLock }),
+
+  /** Unified status: red/disconnected if either socket is down. */
+  unifiedConnectionStatus: () => {
+    const { fileConnectionStatus, projectConnectionStatus } = get()
+    const statuses = [fileConnectionStatus, projectConnectionStatus]
+    if (statuses.some((s) => s === 'disconnected' || s === 'error')) return 'disconnected'
+    if (statuses.some((s) => s === 'reconnecting' || s === 'connecting')) return 'reconnecting'
+    if (statuses.every((s) => s === 'connected')) return 'connected'
+    return 'idle'
   },
+
+  isReadOnly: () => get().role === 'viewer',
 
   isOwner: () => get().role === 'owner',
 
@@ -78,8 +77,9 @@ const useCollabStore = create((set, get) => ({
   reset: () =>
     set({
       presence: [],
-      connectionStatus: 'idle',
+      fileConnectionStatus: 'idle',
       projectConnectionStatus: 'idle',
+      deployLock: null,
     }),
 }))
 

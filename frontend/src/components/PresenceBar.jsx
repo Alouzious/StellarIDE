@@ -1,6 +1,27 @@
 import { Users } from 'lucide-react'
 
-export default function PresenceBar({ presence, connectionStatus }) {
+const STATUS_LABEL = {
+  connected: '● synced',
+  reconnecting: '○ reconnecting',
+  connecting: '○ connecting',
+  disconnected: '● disconnected',
+  error: '● error',
+  idle: '○ idle',
+}
+
+const STATUS_COLOR = {
+  connected: 'text-green-400',
+  reconnecting: 'text-yellow-400',
+  connecting: 'text-yellow-400',
+  disconnected: 'text-red-400',
+  error: 'text-red-400',
+  idle: 'text-stellar-muted',
+}
+
+export default function PresenceBar({ presence, connectionStatus, deployLock }) {
+  const statusLabel = STATUS_LABEL[connectionStatus] || STATUS_LABEL.idle
+  const statusColor = STATUS_COLOR[connectionStatus] || STATUS_COLOR.idle
+
   if (!presence?.length) {
     return (
       <div className="flex items-center gap-2 px-3 py-1 border-b border-stellar-border bg-stellar-card/60 flex-shrink-0">
@@ -8,6 +29,12 @@ export default function PresenceBar({ presence, connectionStatus }) {
         <span className="text-xs text-stellar-muted">
           {connectionStatus === 'connected' ? 'You are editing alone' : 'Connecting...'}
         </span>
+        {deployLock && (
+          <span className="text-xs text-amber-400 ml-2 truncate">
+            {deployLock.user_name} is deploying…
+          </span>
+        )}
+        <span className={`text-[10px] ml-auto flex-shrink-0 ${statusColor}`}>{statusLabel}</span>
       </div>
     )
   }
@@ -18,7 +45,7 @@ export default function PresenceBar({ presence, connectionStatus }) {
       <span className="text-xs text-stellar-muted flex-shrink-0">Live:</span>
       {presence.map((u) => (
         <div
-          key={u.user_id}
+          key={u.connection_id || u.user_id}
           className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-stellar-border bg-stellar-surface flex-shrink-0"
           title={`${u.name} (${u.role})`}
         >
@@ -34,11 +61,12 @@ export default function PresenceBar({ presence, connectionStatus }) {
           )}
         </div>
       ))}
-      <span className={`text-[10px] ml-auto flex-shrink-0 ${
-        connectionStatus === 'connected' ? 'text-green-400' : 'text-yellow-400'
-      }`}>
-        {connectionStatus === 'connected' ? '● synced' : '○ connecting'}
-      </span>
+      {deployLock && (
+        <span className="text-xs text-amber-400 flex-shrink-0">
+          {deployLock.user_name} is deploying…
+        </span>
+      )}
+      <span className={`text-[10px] ml-auto flex-shrink-0 ${statusColor}`}>{statusLabel}</span>
     </div>
   )
 }
