@@ -26,6 +26,8 @@ import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
 import AuditResultsPanel from '../components/AuditResultsPanel'
+import AiExplainPanel from '../components/AiExplainPanel'
+import AiFixPanel from '../components/AiFixPanel'
 import PresenceBar from '../components/PresenceBar'
 import ShareModal from '../components/ShareModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
@@ -119,7 +121,7 @@ function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename })
 }
 
 function OutputPanel({
-  logs, onClear, onFix, onExplain, hasErrors, aiRunning, readOnly,
+  logs, onClear, onFix, onExplain, hasFixContext, aiRunning, readOnly,
   compileStatus, testStatus, deployStatus, auditStatus,
   showAuditResultsLink, onShowAuditResults,
 }) {
@@ -161,24 +163,22 @@ function OutputPanel({
         <div className="flex items-center gap-2 min-w-0">
           <Terminal className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
           <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide truncate">
-            Terminal — {headerStatus}
+            Terminal · {headerStatus}
           </span>
-          {hasErrors && (
-            <div className="flex items-center gap-1.5 ml-1">
-              {!readOnly && (
-                <button onClick={onFix} disabled={aiRunning}
-                  className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
-                  {aiRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                  Fix with AI
-                </button>
-              )}
-              <button onClick={onExplain} disabled={aiRunning}
-                className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 text-yellow-400 rounded text-xs font-medium transition-all disabled:opacity-50">
-                <HelpCircle className="w-3 h-3" />
-                Explain
+          <div className="flex items-center gap-1.5 ml-1">
+            {!readOnly && hasFixContext && (
+              <button onClick={onFix} disabled={aiRunning}
+                className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
+                {aiRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                Fix with AI
               </button>
-            </div>
-          )}
+            )}
+            <button onClick={onExplain} disabled={aiRunning}
+              className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 text-yellow-400 rounded text-xs font-medium transition-all disabled:opacity-50">
+              <HelpCircle className="w-3 h-3" />
+              Explain
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {showAuditResultsLink && (
@@ -874,12 +874,17 @@ export default function IdePage() {
     project, files, activeFile, editorContent, outputLog,
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
-    runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
+    runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainContract,
+    applyAiFix, rejectAiFix, toggleAiFixSelection,
     applyFileTreeUpdate, debouncedSaveFile, appendLog, appendStreamLine,
     beginRemoteTerminal, finishRemoteTerminal, applyRemoteAuditResults,
     auditFindings, auditRiskLevel, auditMessage, auditPanelOpen, auditShowTerminal,
     setAuditPanelOpen, setAuditShowTerminal, jumpToFinding, editorHighlight,
+    aiExplainPanelOpen, aiExplainContent, aiExplainFile, aiExplainStatus, aiExplainError,
+    aiFixPanelOpen, aiFixProposal, aiFixStatus, aiFixError,
+    setAiExplainPanelOpen, setAiFixPanelOpen,
   } = useIdeStore()
+  const { network } = useWalletStore()
   const { isOpen: chatOpen, toggleChat, closeChat, setProjectId: setChatProjectId } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
 
@@ -928,7 +933,7 @@ export default function IdePage() {
       toast.info('Session restored from last saved state')
       if (projectId) loadFiles(projectId)
     } else if (reason === 'disconnected') {
-      toast.error('Collaboration disconnected — refresh if issues persist')
+      toast.error('Collaboration disconnected. Refresh if issues persist.')
     }
   }
 
@@ -1091,6 +1096,58 @@ export default function IdePage() {
     await runAudit(projectId)
   }
 
+  const hasFixContext = useMemo(
+    () =>
+      outputLog.some((l) => l.level === 'error')
+      || auditFindings.length > 0
+      || compileStatus === 'error',
+    [outputLog, auditFindings, compileStatus]
+  )
+
+  const aiRunning = aiStatus === 'running'
+
+  const handleExplain = async () => {
+    setBottomPanelOpen(true)
+    setAiExplainPanelOpen(true)
+    await explainContract(projectId, network)
+  }
+
+  const handleFix = async () => {
+    setBottomPanelOpen(true)
+    setAiFixPanelOpen(true)
+    await fixWithAI(projectId, network)
+  }
+
+  const handleApplyFix = async () => {
+    const result = await applyAiFix(projectId)
+    if (result.success) {
+      toast.success('Fix applied. Recompiling...')
+      setBottomPanelOpen(true)
+      await runCompile(projectId)
+    } else if (result.reason === 'no_selection') {
+      toast.error('Select at least one fix to apply')
+    } else {
+      toast.error('Failed to apply fix')
+    }
+  }
+
+  useEffect(() => {
+    if (!projectId || readOnly) return
+    const onKeyDown = (e) => {
+      if (!e.ctrlKey || !e.shiftKey) return
+      if (e.key === 'E' || e.key === 'e') {
+        e.preventDefault()
+        handleExplain()
+      }
+      if (e.key === 'F' || e.key === 'f') {
+        e.preventDefault()
+        if (hasFixContext) handleFix()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [projectId, readOnly, network, hasFixContext])
+
   // Deploy button opens the panel
   const handleDeployToggle = () => {
     setDeployPanelOpen(!deployPanelOpen)
@@ -1172,6 +1229,21 @@ export default function IdePage() {
             {actionIcon(auditStatus, Shield)}
             <span className="hidden sm:inline">Audit</span>
           </button>
+          <div className="h-4 w-px bg-stellar-border hidden md:block" />
+          <button onClick={handleExplain} disabled={aiRunning}
+            title="Explain contract (Ctrl+Shift+E)"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 hover:border-yellow-500/40 text-yellow-400 rounded-md text-xs font-medium transition-all disabled:opacity-50">
+            {aiExplainStatus === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <HelpCircle className="w-3.5 h-3.5" />}
+            <span className="hidden lg:inline">Explain</span>
+          </button>
+          {!readOnly && (
+            <button onClick={handleFix} disabled={aiRunning || !hasFixContext}
+              title="Fix with AI (Ctrl+Shift+F)"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-accent/15 border border-stellar-accent/30 hover:border-stellar-accent/50 text-stellar-accent rounded-md text-xs font-medium transition-all disabled:opacity-50">
+              {aiFixStatus === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span className="hidden lg:inline">Fix</span>
+            </button>
+          )}
         </div>
 
         {/* Right */}
@@ -1289,7 +1361,7 @@ export default function IdePage() {
                 <div className="text-center space-y-2">
                   <Package className="w-10 h-10 mx-auto text-stellar-border" />
                   <p className="text-sm">Binary WASM file</p>
-                  <p className="text-xs text-stellar-border">Compiled and saved — ready to deploy</p>
+                  <p className="text-xs text-stellar-border">Compiled and saved. Ready to deploy.</p>
                 </div>
               </div>
             ) : token && user?.id && activeFile ? (
@@ -1353,14 +1425,36 @@ export default function IdePage() {
                   onToggleTerminal={() => setAuditShowTerminal(true)}
                   showTerminal={false}
                 />
+              ) : aiExplainPanelOpen ? (
+                <AiExplainPanel
+                  filePath={aiExplainFile || activeFile?.file_path}
+                  content={aiExplainContent}
+                  status={aiExplainStatus}
+                  error={aiExplainError}
+                  onClose={() => setAiExplainPanelOpen(false)}
+                  onRetry={() => explainContract(projectId, network)}
+                />
+              ) : aiFixPanelOpen ? (
+                <AiFixPanel
+                  filePath={activeFile?.file_path}
+                  proposal={aiFixProposal}
+                  status={aiFixStatus}
+                  error={aiFixError}
+                  readOnly={readOnly}
+                  onClose={() => { setAiFixPanelOpen(false); rejectAiFix() }}
+                  onRetry={() => fixWithAI(projectId, network)}
+                  onApply={handleApplyFix}
+                  onReject={rejectAiFix}
+                  onToggleFix={toggleAiFixSelection}
+                />
               ) : (
                 <OutputPanel
                   logs={outputLog}
                   onClear={clearLog}
-                  onFix={() => fixWithAI(projectId)}
-                  onExplain={() => explainError(projectId)}
-                  hasErrors={outputLog.some(l => l.level === 'error')}
-                  aiRunning={aiStatus === 'running'}
+                  onFix={handleFix}
+                  onExplain={handleExplain}
+                  hasFixContext={hasFixContext}
+                  aiRunning={aiRunning}
                   readOnly={readOnly}
                   compileStatus={compileStatus}
                   testStatus={testStatus}

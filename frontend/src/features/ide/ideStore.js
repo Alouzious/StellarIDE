@@ -3,6 +3,7 @@ import api from '../../services/api'
 import { streamSsePost } from '../../services/sseStream'
 import { Keypair } from '@stellar/stellar-sdk'
 import { deployContractWithWallet } from '../../lib/sorobanDeploy'
+import { buildAiContext } from '../../lib/aiContext'
 
 function inferLogLevel(line) {
   const lower = `${line}`.toLowerCase()
@@ -93,6 +94,17 @@ const useIdeStore = create((set, get) => ({
   auditShowTerminal: false,
   editorHighlight: null,
   isSaving: false,
+
+  aiStatus: 'idle',
+  aiExplainPanelOpen: false,
+  aiExplainContent: '',
+  aiExplainFile: '',
+  aiExplainStatus: 'idle',
+  aiExplainError: null,
+  aiFixPanelOpen: false,
+  aiFixProposal: null,
+  aiFixStatus: 'idle',
+  aiFixError: null,
 
   // Generated wallet (keypair lives in browser only, never sent to DB)
   generatedWallet: null, // { publicKey, secretKey }
@@ -206,7 +218,7 @@ const useIdeStore = create((set, get) => ({
   pushToGitHub: async (projectId, message, options = {}) => {
     const { appendLog } = get()
     const { branch, openPr, prBase, prTitle } = options
-    appendLog(`$ git push${branch ? ` origin ${branch}` : ''} — "${message}"`, 'info')
+    appendLog(`$ git push${branch ? ` origin ${branch}` : ''}: "${message}"`, 'info')
     try {
       const { data } = await api.post(`/projects/${projectId}/github/push`, {
         message,
@@ -272,7 +284,7 @@ const useIdeStore = create((set, get) => ({
     }
     if (line.startsWith('[ERROR]')) {
       const detail = line.replace('[ERROR]', '').trim()
-      appendLog(`✗ Failed${detail ? ` — ${detail}` : ''}`, 'error')
+      appendLog(`✗ Failed${detail ? `: ${detail}` : ''}`, 'error')
       return 'error'
     }
     appendLog(line)
@@ -312,9 +324,9 @@ const useIdeStore = create((set, get) => ({
       deployStatus: op === 'deploy' ? status : get().deployStatus,
     })
     if (op === 'audit' && !msg.success && msg.message) {
-      appendLog(`✗ ${msg.user_name} — ${msg.message}`, 'error')
+      appendLog(`✗ ${msg.user_name}: ${msg.message}`, 'error')
     } else if (op !== 'audit' && !msg.success && msg.message) {
-      appendLog(`✗ ${msg.user_name} — ${msg.message}`, 'error')
+      appendLog(`✗ ${msg.user_name}: ${msg.message}`, 'error')
     }
   },
 
@@ -385,7 +397,7 @@ const useIdeStore = create((set, get) => ({
     } catch (err) {
       if (err.name === 'AbortError') return
       set({ compileStatus: 'error', terminalOperation: null })
-      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      appendLog('Connection lost: output may be incomplete', 'warning')
       if (err.message) appendLog(`✖  ${err.message}`, 'error')
     } finally {
       set({ streamAbortController: null, terminalOperation: null })
@@ -422,7 +434,7 @@ const useIdeStore = create((set, get) => ({
     } catch (err) {
       if (err.name === 'AbortError') return
       set({ testStatus: 'error', terminalOperation: null })
-      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      appendLog('Connection lost: output may be incomplete', 'warning')
       if (err.message) appendLog(`✖  ${err.message}`, 'error')
     } finally {
       set({ streamAbortController: null, terminalOperation: null })
@@ -451,7 +463,7 @@ const useIdeStore = create((set, get) => ({
           (f) => f.file_path?.endsWith('.wasm') || f.language === 'wasm'
         )
         if (!wasmFile?.content) {
-          throw new Error('No WASM artifact found — compile your contract first')
+          throw new Error('No WASM artifact found. Compile your contract first')
         }
 
         const wasmBytes = Uint8Array.from(atob(wasmFile.content), (c) => c.charCodeAt(0))
@@ -532,7 +544,7 @@ const useIdeStore = create((set, get) => ({
     } catch (err) {
       if (err.name === 'AbortError') return { success: false }
       set({ deployStatus: 'error', terminalOperation: null })
-      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      appendLog('Connection lost: output may be incomplete', 'warning')
       if (err.message) appendLog(`✖  ${err.message}`, 'error')
       return { success: false, error: err.message }
     } finally {
@@ -540,56 +552,150 @@ const useIdeStore = create((set, get) => ({
     }
   },
 
-  aiStatus: 'idle', // 'idle' | 'running' | 'done' | 'error'
-
-  fixWithAI: async (projectId) => {
-    const { editorContent, outputLog, appendLog } = get()
-    const errors = outputLog.filter(l => l.level === 'error').map(l => l.line).join('\n')
-    if (!errors || !projectId) return
-    set({ aiStatus: 'running' })
-    appendLog('   Asking AI to fix the error...', 'info')
+  saveFileContent: async (projectId, filePath, content) => {
+    if (!projectId || !filePath) return { success: false }
+    const language = filePath.endsWith('.toml') ? 'toml' : 'rust'
     try {
-      const { data } = await api.post(`/projects/${projectId}/ai-fix`, {
-        code: editorContent,
-        errors,
+      await api.post(`/projects/${projectId}/files`, {
+        file_path: filePath,
+        content,
+        language,
       })
-      if (data.result) {
-        set({ aiStatus: 'done' })
-        get().setEditorContent(data.result)
-        appendLog('✔  AI applied fix — review the changes then compile again', 'success')
-      } else {
-        set({ aiStatus: 'error' })
-        appendLog('✖  AI could not generate a fix', 'error')
-      }
+      set((state) => ({
+        files: state.files.map((f) =>
+          f.file_path === filePath ? { ...f, content } : f
+        ),
+        activeFile: state.activeFile?.file_path === filePath
+          ? { ...state.activeFile, content }
+          : state.activeFile,
+        editorContent: state.activeFile?.file_path === filePath ? content : state.editorContent,
+      }))
+      return { success: true }
     } catch {
-      set({ aiStatus: 'error' })
-      appendLog('✖  AI fix failed — is GROQ_API_KEY set in backend .env?', 'error')
+      return { success: false }
     }
   },
 
-  explainError: async (projectId) => {
-    const { editorContent, outputLog, appendLog } = get()
-    const errors = outputLog.filter(l => l.level === 'error').map(l => l.line).join('\n')
-    if (!errors || !projectId) return
-    set({ aiStatus: 'running' })
-    appendLog('   Asking AI to explain the error...', 'info')
+  setAiExplainPanelOpen: (open) => set({ aiExplainPanelOpen: open }),
+  setAiFixPanelOpen: (open) => set({ aiFixPanelOpen: open }),
+
+  explainContract: async (projectId, network = 'testnet') => {
+    if (!projectId) return
+    const { appendLog } = get()
+    set({
+      aiStatus: 'running',
+      aiExplainStatus: 'running',
+      aiExplainError: null,
+      aiExplainPanelOpen: true,
+      aiFixPanelOpen: false,
+      auditPanelOpen: false,
+      aiExplainContent: '',
+      aiExplainFile: get().activeFile?.file_path || 'src/lib.rs',
+    })
+    appendLog('Analyzing contract with AI...', 'info')
     try {
-      const { data } = await api.post(`/projects/${projectId}/ai-explain`, {
-        code: editorContent,
-        errors,
+      const payload = buildAiContext(get(), network)
+      const { data } = await api.post(`/projects/${projectId}/ai-explain`, payload)
+      set({
+        aiStatus: 'done',
+        aiExplainStatus: 'done',
+        aiExplainContent: data.markdown,
+        aiExplainFile: data.file_path || payload.active_file,
       })
-      if (data.result) {
-        set({ aiStatus: 'done' })
-        data.result.split('\n').forEach(line => line.trim() && appendLog('   ' + line, 'warning'))
-      } else {
-        set({ aiStatus: 'error' })
-        appendLog('✖  AI could not explain the error', 'error')
-      }
-    } catch {
-      set({ aiStatus: 'error' })
-      appendLog('✖  AI explain failed — is GROQ_API_KEY set in backend .env?', 'error')
+    } catch (err) {
+      const msg = err.response?.data?.error || 'AI explanation failed. Check GROQ_API_KEY.'
+      set({
+        aiStatus: 'error',
+        aiExplainStatus: 'error',
+        aiExplainError: msg,
+      })
+      appendLog(`✖ ${msg}`, 'error')
     }
   },
+
+  fixWithAI: async (projectId, network = 'testnet') => {
+    if (!projectId) return
+    const { outputLog, auditFindings, appendLog } = get()
+    const hasErrors = outputLog.some((l) => l.level === 'error')
+    const hasAudit = auditFindings?.length > 0
+    if (!hasErrors && !hasAudit && get().compileStatus !== 'error') {
+      appendLog('No errors or audit findings to fix. Compile or run audit first.', 'warning')
+      return
+    }
+    set({
+      aiStatus: 'running',
+      aiFixStatus: 'running',
+      aiFixError: null,
+      aiFixPanelOpen: true,
+      aiExplainPanelOpen: false,
+      auditPanelOpen: false,
+      aiFixProposal: null,
+    })
+    appendLog('Generating AI fix proposal...', 'info')
+    try {
+      const payload = buildAiContext(get(), network)
+      const { data } = await api.post(`/projects/${projectId}/ai-fix`, payload)
+      const fixes = (data.fixes || []).map((f) => ({ ...f, selected: true }))
+      set({
+        aiStatus: 'done',
+        aiFixStatus: 'done',
+        aiFixProposal: { ...data, fixes },
+      })
+    } catch (err) {
+      const msg = err.response?.data?.error || 'AI fix failed. Check GROQ_API_KEY.'
+      set({
+        aiStatus: 'error',
+        aiFixStatus: 'error',
+        aiFixError: msg,
+      })
+      appendLog(`✖ ${msg}`, 'error')
+    }
+  },
+
+  toggleAiFixSelection: (index, selected) => {
+    const proposal = get().aiFixProposal
+    if (!proposal?.fixes) return
+    const fixes = proposal.fixes.map((f, i) => (i === index ? { ...f, selected } : f))
+    set({ aiFixProposal: { ...proposal, fixes } })
+  },
+
+  rejectAiFix: () => {
+    set({
+      aiFixPanelOpen: false,
+      aiFixProposal: null,
+      aiFixStatus: 'idle',
+      aiFixError: null,
+      aiStatus: 'idle',
+    })
+  },
+
+  applyAiFix: async (projectId) => {
+    const { aiFixProposal, saveFileContent, setActiveFile } = get()
+    if (!projectId || !aiFixProposal?.fixes?.length) return { success: false }
+    const selected = aiFixProposal.fixes.filter((f) => f.selected !== false)
+    if (!selected.length) return { success: false, reason: 'no_selection' }
+
+    for (const fix of selected) {
+      const result = await saveFileContent(projectId, fix.file_path, fix.fixed)
+      if (!result.success) return { success: false, reason: 'save_failed' }
+    }
+
+    const activePath = get().activeFile?.file_path
+    const focusFix = selected.find((f) => f.file_path === activePath) || selected[0]
+    const file = get().files.find((f) => f.file_path === focusFix.file_path)
+    if (file) setActiveFile({ ...file, content: focusFix.fixed })
+
+    set({
+      aiFixPanelOpen: false,
+      aiFixProposal: null,
+      aiFixStatus: 'idle',
+      aiStatus: 'idle',
+    })
+    return { success: true, count: selected.length }
+  },
+
+  // Backward-compatible alias
+  explainError: async (projectId, network) => get().explainContract(projectId, network),
 
   runAudit: async (projectId) => {
     const { clearLog, appendLog, stopStream, appendStreamLine } = get()
@@ -619,7 +725,7 @@ const useIdeStore = create((set, get) => ({
               findings.push(finding)
               set({ auditFindings: [...findings] })
               appendLog(
-                `   [${finding.severity}] ${finding.title} — ${finding.file}:${finding.line_start}`,
+                `   [${finding.severity}] ${finding.title} @ ${finding.file}:${finding.line_start}`,
                 finding.severity === 'Critical' || finding.severity === 'High' ? 'error' : 'warning'
               )
             } catch {
@@ -653,7 +759,7 @@ const useIdeStore = create((set, get) => ({
     } catch (err) {
       if (err.name === 'AbortError') return
       set({ auditStatus: 'error', terminalOperation: null, auditPanelOpen: true })
-      appendLog('⚠ Connection lost — output may be incomplete', 'warning')
+      appendLog('Connection lost: output may be incomplete', 'warning')
       if (err.message) appendLog(`✖  ${err.message}`, 'error')
     } finally {
       set({ streamAbortController: null, terminalOperation: null })
