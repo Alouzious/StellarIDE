@@ -17,7 +17,10 @@ import useDashboardStore from '../features/dashboard/dashboardStore'
 import useAuthStore from '../features/auth/authStore'
 import useGitHubStore from '../features/github/githubStore'
 import useCollabStore from '../features/collab/collabStore'
+import useWalletStore from '../features/wallet/walletStore'
 import { ProjectCollabProvider } from '../features/collab/collabProvider'
+import { getWalletKit } from '../lib/walletKit'
+import { getExplorerContractUrl, getStellarLabContractUrl } from '../lib/sorobanDeploy'
 import Button from '../components/ui/Button'
 import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
@@ -180,36 +183,115 @@ function StepBadge({ n, label, state }) {
 }
 
 // ── Main Deploy Panel ─────────────────────────────────────────────────────────
+function truncateAddress(addr) {
+  if (!addr || addr.length < 10) return addr || ''
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`
+}
+
+function NetworkToggle() {
+  const { network, setNetwork } = useWalletStore()
+  return (
+    <div className="flex items-center rounded-md border border-stellar-border overflow-hidden text-xs font-medium">
+      {[
+        { id: 'testnet', label: 'Testnet' },
+        { id: 'mainnet', label: 'Mainnet' },
+      ].map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setNetwork(id)}
+          className={`px-2.5 py-1.5 transition-colors ${
+            network === id
+              ? 'bg-stellar-accent/20 text-stellar-accent'
+              : 'bg-stellar-surface text-stellar-muted hover:text-white'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function DeployPanel({ onClose, projectId }) {
   const {
     files, generatedWallet, walletBalance, walletFunded,
     generateWallet, fundWallet, checkBalance, setWalletBalance,
-    runDeploy, deployStatus, appendLog, clearLog,
+    runDeploy, deployStatus, clearLog,
   } = useIdeStore()
+  const {
+    connectedAddress,
+    connectedWalletId,
+    network,
+    walletBalance: connectedBalance,
+    isConnecting,
+    lastDeployContractId,
+    connectWallet,
+    disconnectWallet,
+    fetchBalance,
+    networkMatchesWallet,
+    setLastDeployContractId,
+    walletLabel,
+  } = useWalletStore()
+  const { toast } = useToast()
 
   const [showSecret, setShowSecret] = useState(false)
-  const [network, setNetwork] = useState('testnet')
   const [funding, setFunding] = useState(false)
+  const [fundingConnected, setFundingConnected] = useState(false)
   const [checkingBal, setCheckingBal] = useState(false)
+  const [checkingConnectedBal, setCheckingConnectedBal] = useState(false)
 
-  const wasmFile = files.find(f => f.file_path.endsWith('.wasm'))
+  const wasmFile = files.find((f) => f.file_path?.endsWith('.wasm'))
   const step1Done = !!generatedWallet
   const step2Done = walletFunded
   const step3Ready = step1Done && step2Done && !!wasmFile
+  const usingConnectedWallet = !!connectedAddress
+  const walletName = walletLabel()
+  const networkOk = networkMatchesWallet()
+  const deployReady = !!wasmFile && (
+    (usingConnectedWallet && networkOk) ||
+    (!usingConnectedWallet && step3Ready)
+  )
+  const isDeploying = deployStatus === 'running' || deployStatus === 'signing'
 
-  const copy = (text) => navigator.clipboard.writeText(text)
+  const copy = (text) => {
+    navigator.clipboard.writeText(text)
+    toast.success('Copied to clipboard')
+  }
+
+  const handleConnect = async () => {
+    const result = await connectWallet()
+    if (result.cancelled) return
+    if (!result.success) toast.error(result.error || 'Failed to connect wallet')
+    else toast.success(`Connected via ${walletLabel()}`)
+  }
+
+  const handleDisconnect = async () => {
+    await disconnectWallet()
+    toast.success('Wallet disconnected')
+  }
 
   const handleFund = async () => {
     if (!generatedWallet) return
     setFunding(true)
     const ok = await fundWallet(generatedWallet.publicKey)
     if (ok) {
-      // Wait a moment then check balance
-      await new Promise(r => setTimeout(r, 2000))
+      await new Promise((r) => setTimeout(r, 2000))
       const bal = await checkBalance(generatedWallet.publicKey)
       setWalletBalance(bal)
     }
     setFunding(false)
+  }
+
+  const handleFundConnected = async () => {
+    if (!connectedAddress || network !== 'testnet') return
+    setFundingConnected(true)
+    const ok = await fundWallet(connectedAddress)
+    if (ok) {
+      await new Promise((r) => setTimeout(r, 2000))
+      await fetchBalance(connectedAddress, network)
+    }
+    setFundingConnected(false)
   }
 
   const handleCheckBalance = async () => {
@@ -220,21 +302,61 @@ function DeployPanel({ onClose, projectId }) {
     setCheckingBal(false)
   }
 
+  const handleCheckConnectedBalance = async () => {
+    if (!connectedAddress) return
+    setCheckingConnectedBal(true)
+    await fetchBalance(connectedAddress, network)
+    setCheckingConnectedBal(false)
+  }
+
   const handleDeploy = async () => {
-    if (!step3Ready) return
+    if (!deployReady || isDeploying) return
     clearLog()
-    await runDeploy(projectId, generatedWallet.publicKey, network, generatedWallet.secretKey)
+    setLastDeployContractId(null)
+
+    if (usingConnectedWallet) {
+      const kit = getWalletKit()
+      const result = await runDeploy(projectId, {
+        walletAddress: connectedAddress,
+        network,
+        useExternalWallet: true,
+        files,
+        signTransaction: kit.signTransaction.bind(kit),
+      })
+      if (result.rejected) {
+        toast.error('Transaction rejected in wallet')
+      } else if (result.success && result.contractId) {
+        setLastDeployContractId(result.contractId)
+        toast.success('Contract deployed successfully')
+      } else if (!result.success) {
+        toast.error(result.error || 'Deploy failed')
+      }
+      return
+    }
+
+    const result = await runDeploy(projectId, {
+      walletAddress: generatedWallet.publicKey,
+      network,
+      secretKey: generatedWallet.secretKey,
+      useExternalWallet: false,
+    })
+    if (result?.contractId) setLastDeployContractId(result.contractId)
   }
 
   const stepState = (n) => {
+    if (usingConnectedWallet) return 'done'
     if (n === 1) return step1Done ? 'done' : 'active'
     if (n === 2) return step2Done ? 'done' : step1Done ? 'active' : 'locked'
     return step3Ready ? 'active' : 'locked'
   }
 
+  const connectedBalNum = parseFloat(connectedBalance || '0')
+  const networkBadgeClass = network === 'mainnet'
+    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+    : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+
   return (
     <div className="w-80 flex-shrink-0 border-l border-stellar-border bg-stellar-card flex flex-col overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stellar-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <Rocket className="w-4 h-4 text-stellar-accent" />
@@ -245,7 +367,6 @@ function DeployPanel({ onClose, projectId }) {
         </button>
       </div>
 
-      {/* Steps */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-stellar-border flex-shrink-0">
         <StepBadge n={1} label="Generate" state={stepState(1)} />
         <ChevronRight className="w-3 h-3 text-stellar-border mb-4" />
@@ -254,14 +375,118 @@ function DeployPanel({ onClose, projectId }) {
         <StepBadge n={3} label="Deploy" state={stepState(3)} />
       </div>
 
-      {/* Scrollable content */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
+        {/* Connected wallet */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-stellar-heading uppercase tracking-wider">Connect Wallet</span>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${networkBadgeClass}`}>
+              {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+            </span>
+          </div>
 
-        {/* Wallet section */}
+          {!connectedAddress ? (
+            <>
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={isConnecting}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
+              >
+                {isConnecting
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Connecting…</>
+                  : <><Wallet className="w-4 h-4" /> Connect Wallet</>}
+              </button>
+              <p className="text-xs text-stellar-muted text-center leading-relaxed">
+                Sign with Freighter, Albedo, xBull, Ledger, and more.
+              </p>
+            </>
+          ) : (
+            <div className="bg-stellar-surface border border-stellar-accent/30 rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-stellar-heading flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                  {walletName}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="text-xs text-stellar-muted hover:text-red-400 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-xs text-stellar-border uppercase tracking-wider">Address</span>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 text-xs font-mono text-stellar-text">
+                    {truncateAddress(connectedAddress)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copy(connectedAddress)}
+                    className="p-1 text-stellar-border hover:text-stellar-accent transition-colors"
+                    title="Copy address"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-stellar-border/50">
+                <span className="text-xs text-stellar-border">Balance</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-mono font-semibold ${connectedBalNum > 0 ? 'text-green-400' : 'text-stellar-muted'}`}>
+                    {connectedBalNum.toFixed(2)} XLM
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCheckConnectedBalance}
+                    disabled={checkingConnectedBal}
+                    className="p-0.5 text-stellar-border hover:text-stellar-accent transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${checkingConnectedBal ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {network === 'testnet' && connectedBalNum === 0 && (
+                <button
+                  type="button"
+                  onClick={handleFundConnected}
+                  disabled={fundingConnected}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                >
+                  {fundingConnected
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Funding…</>
+                    : <>⚡ Fund via Friendbot — Free</>}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="relative py-1">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-stellar-border/50" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-stellar-card px-2 text-[10px] uppercase tracking-wider text-stellar-border">
+              Generate a new wallet instead
+            </span>
+          </div>
+        </div>
+
+        {/* Generated wallet fallback */}
         {!generatedWallet ? (
           <div className="space-y-3">
-            <button onClick={generateWallet}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-stellar-accent hover:bg-stellar-accent-hover text-white rounded-lg text-sm font-semibold transition-all">
+            <button
+              type="button"
+              onClick={generateWallet}
+              disabled={!!connectedAddress}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/40 text-stellar-muted hover:text-white rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
               <Wallet className="w-4 h-4" />
               Generate Wallet
             </button>
@@ -275,22 +500,25 @@ function DeployPanel({ onClose, projectId }) {
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-stellar-heading flex items-center gap-1.5">
                 <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-                Wallet Ready
+                Generated Wallet
               </span>
-              <button onClick={generateWallet}
-                className="text-xs text-stellar-border hover:text-stellar-muted transition-colors">
+              <button
+                type="button"
+                onClick={generateWallet}
+                disabled={!!connectedAddress}
+                className="text-xs text-stellar-border hover:text-stellar-muted transition-colors disabled:opacity-40"
+              >
                 regenerate
               </button>
             </div>
 
-            {/* Public key */}
             <div className="space-y-1">
               <span className="text-xs text-stellar-border uppercase tracking-wider">Public Key</span>
               <div className="flex items-center gap-2">
                 <span className="flex-1 text-xs font-mono text-stellar-text truncate">
-                  {generatedWallet.publicKey.slice(0, 8)}...{generatedWallet.publicKey.slice(-6)}
+                  {truncateAddress(generatedWallet.publicKey)}
                 </span>
-                <button onClick={() => copy(generatedWallet.publicKey)}
+                <button type="button" onClick={() => copy(generatedWallet.publicKey)}
                   className="p-1 text-stellar-border hover:text-stellar-accent transition-colors flex-shrink-0"
                   title="Copy public key">
                   <Copy className="w-3 h-3" />
@@ -298,21 +526,20 @@ function DeployPanel({ onClose, projectId }) {
               </div>
             </div>
 
-            {/* Secret key */}
             <div className="space-y-1">
               <span className="text-xs text-stellar-border uppercase tracking-wider">Secret Key</span>
               <div className="flex items-center gap-2">
                 <span className="flex-1 text-xs font-mono text-stellar-text truncate">
                   {showSecret
-                    ? `${generatedWallet.secretKey.slice(0, 8)}...${generatedWallet.secretKey.slice(-6)}`
+                    ? truncateAddress(generatedWallet.secretKey)
                     : '••••••••••••••••••••'}
                 </span>
-                <button onClick={() => setShowSecret(!showSecret)}
+                <button type="button" onClick={() => setShowSecret(!showSecret)}
                   className="p-1 text-stellar-border hover:text-stellar-accent transition-colors flex-shrink-0"
                   title={showSecret ? 'Hide' : 'Reveal'}>
                   {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                 </button>
-                <button onClick={() => copy(generatedWallet.secretKey)}
+                <button type="button" onClick={() => copy(generatedWallet.secretKey)}
                   className="p-1 text-stellar-border hover:text-stellar-accent transition-colors flex-shrink-0"
                   title="Copy secret key">
                   <Copy className="w-3 h-3" />
@@ -321,10 +548,9 @@ function DeployPanel({ onClose, projectId }) {
             </div>
 
             <p className="text-xs text-yellow-500/80 bg-yellow-500/5 border border-yellow-500/20 rounded px-2 py-1.5 leading-relaxed">
-              ⚠ Save your secret key before closing this tab.
+              Save your secret key before closing this tab.
             </p>
 
-            {/* Balance + fund */}
             <div className="pt-1 border-t border-stellar-border/50 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-stellar-border">Balance</span>
@@ -332,21 +558,21 @@ function DeployPanel({ onClose, projectId }) {
                   <span className={`text-xs font-mono font-semibold ${walletFunded ? 'text-green-400' : 'text-stellar-muted'}`}>
                     {parseFloat(walletBalance).toFixed(2)} XLM
                   </span>
-                  <button onClick={handleCheckBalance} disabled={checkingBal}
+                  <button type="button" onClick={handleCheckBalance} disabled={checkingBal}
                     className="p-0.5 text-stellar-border hover:text-stellar-accent transition-colors disabled:opacity-50">
                     <RefreshCw className={`w-3 h-3 ${checkingBal ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
               </div>
-              {!walletFunded && (
-                <button onClick={handleFund} disabled={funding}
+              {!walletFunded && !connectedAddress && (
+                <button type="button" onClick={handleFund} disabled={funding}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs font-semibold transition-all disabled:opacity-50">
                   {funding
-                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Funding...</>
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Funding…</>
                     : <>⚡ Fund via Friendbot — Free</>}
                 </button>
               )}
-              {walletFunded && (
+              {walletFunded && !connectedAddress && (
                 <div className="flex items-center gap-1.5 text-xs text-green-400">
                   <CheckCircle className="w-3.5 h-3.5" />
                   Funded and ready to deploy
@@ -356,21 +582,8 @@ function DeployPanel({ onClose, projectId }) {
           </div>
         )}
 
-        {/* Freighter coming soon */}
-        <div className="flex items-center gap-3 px-3 py-2.5 bg-stellar-surface/40 border border-stellar-border/50 rounded-lg opacity-50 cursor-not-allowed">
-          <span className="text-base">🔷</span>
-          <div className="flex-1 min-w-0">
-            <span className="text-xs text-stellar-muted font-medium">Connect Wallet</span>
-          </div>
-          <span className="text-xs text-stellar-border bg-stellar-surface px-2 py-0.5 rounded-full flex-shrink-0">
-            Soon
-          </span>
-        </div>
-
-        {/* Divider */}
         <div className="border-t border-stellar-border/50" />
 
-        {/* WASM status */}
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-stellar-border bg-stellar-surface">
           <Package className={`w-4 h-4 flex-shrink-0 ${wasmFile ? 'text-green-400' : 'text-stellar-border'}`} />
           <div className="flex-1 min-w-0">
@@ -382,37 +595,96 @@ function DeployPanel({ onClose, projectId }) {
           {wasmFile && <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />}
         </div>
 
-        {/* Network selector */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-stellar-muted flex-shrink-0">Network</span>
-          <select value={network} onChange={e => setNetwork(e.target.value)}
-            className="flex-1 bg-stellar-surface border border-stellar-border text-stellar-text text-xs rounded-md px-2 py-1.5 focus:outline-none focus:border-stellar-accent/50">
-            <option value="testnet">Testnet</option>
-            <option value="mainnet">Mainnet</option>
-          </select>
-        </div>
+        {connectedAddress && network === 'mainnet' && (
+          <div className="flex gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-200 leading-relaxed">
+              You are deploying to <strong>Mainnet</strong>. This uses real XLM and cannot be undone. Double-check your contract before signing.
+            </p>
+          </div>
+        )}
 
-        {/* Deploy button */}
+        {connectedAddress && !networkOk && (
+          <div className="flex gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-200 leading-relaxed">
+              IDE network ({network === 'mainnet' ? 'Mainnet' : 'Testnet'}) does not match your wallet. Switch the network toggle or reconnect your wallet.
+            </p>
+          </div>
+        )}
+
         <button
+          type="button"
           onClick={handleDeploy}
-          disabled={!step3Ready || deployStatus === 'running'}
+          disabled={!deployReady || isDeploying}
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
-            step3Ready
+            deployReady
               ? 'bg-stellar-accent hover:bg-stellar-accent-hover text-white'
               : 'bg-stellar-surface border border-stellar-border text-stellar-border cursor-not-allowed opacity-50'
-          }`}>
-          {deployStatus === 'running'
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Deploying...</>
-            : step3Ready
-            ? <><Rocket className="w-4 h-4" /> Deploy to {network}</>
+          }`}
+        >
+          {deployStatus === 'signing'
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Waiting for wallet signature…</>
+            : deployStatus === 'running'
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Deploying…</>
+            : deployReady && usingConnectedWallet
+            ? <><Wallet className="w-4 h-4" /> Deploy with {walletName}</>
+            : deployReady
+            ? <><Rocket className="w-4 h-4" /> Deploy with Generated Wallet</>
             : <><Lock className="w-4 h-4" /> Complete steps above</>}
         </button>
 
-        {!step3Ready && (
+        {!deployReady && (
           <div className="text-xs text-stellar-border space-y-1 px-1">
-            {!step1Done && <p>① Generate a wallet above</p>}
-            {step1Done && !step2Done && <p>② Fund your wallet via Friendbot</p>}
-            {!wasmFile && <p>③ Compile your contract first</p>}
+            {!wasmFile && <p>Compile your contract first</p>}
+            {wasmFile && !usingConnectedWallet && !step1Done && <p>Connect a wallet or generate one below</p>}
+            {wasmFile && !usingConnectedWallet && step1Done && !step2Done && <p>Fund your generated wallet via Friendbot</p>}
+            {wasmFile && usingConnectedWallet && !networkOk && <p>Fix network mismatch before deploying</p>}
+          </div>
+        )}
+
+        {lastDeployContractId && deployStatus === 'success' && (
+          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-green-400">
+              <CheckCircle className="w-3.5 h-3.5" />
+              Contract deployed
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] text-stellar-border uppercase tracking-wider">Contract ID</span>
+              <div className="flex items-start gap-2">
+                <code className="flex-1 text-[11px] font-mono text-stellar-text break-all leading-relaxed">
+                  {lastDeployContractId}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy(lastDeployContractId)}
+                  className="p-1 text-stellar-border hover:text-stellar-accent transition-colors flex-shrink-0"
+                  title="Copy contract ID"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <a
+                href={getExplorerContractUrl(lastDeployContractId, network)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-stellar-accent hover:underline"
+              >
+                Stellar Expert
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <a
+                href={getStellarLabContractUrl(lastDeployContractId, network)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-stellar-accent hover:underline"
+              >
+                Stellar Lab
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -763,6 +1035,7 @@ export default function IdePage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          <NetworkToggle />
           <button onClick={handleSave} disabled={isSaving || readOnly}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all">
             {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
