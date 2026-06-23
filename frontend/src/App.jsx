@@ -10,6 +10,8 @@ import DashboardPage from './pages/DashboardPage'
 import IdePage from './pages/IdePage'
 import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import NotFoundPage from './pages/NotFoundPage'
+import DocsLayout from './layouts/DocsLayout'
+import DocsContentPage from './pages/docs/DocsContentPage'
 
 export default function App() {
   return (
@@ -18,6 +20,21 @@ export default function App() {
         {/* Public pages with Navbar + Footer */}
         <Route element={<PublicLayout />}>
           <Route index element={<LandingPage />} />
+        </Route>
+
+        {/* Documentation */}
+        <Route path="/docs" element={<DocsLayout />}>
+          <Route index element={<DocsContentPage />} />
+          <Route path="getting-started" element={<DocsContentPage />} />
+          <Route path="editor" element={<DocsContentPage />} />
+          <Route path="compile-test" element={<DocsContentPage />} />
+          <Route path="deploy" element={<DocsContentPage />} />
+          <Route path="wallet" element={<DocsContentPage />} />
+          <Route path="github" element={<DocsContentPage />} />
+          <Route path="collaboration" element={<DocsContentPage />} />
+          <Route path="audit" element={<DocsContentPage />} />
+          <Route path="ai-assistant" element={<DocsContentPage />} />
+          <Route path="api" element={<DocsContentPage />} />
         </Route>
 
         {/* Auth pages (redirect to /dashboard if already logged in) */}

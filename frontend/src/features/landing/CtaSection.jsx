@@ -26,12 +26,12 @@ export default function CtaSection() {
                   Start Building Free
                 </Button>
               </Link>
-              <a href="https://docs.stellar.org/docs/smart-contracts" target="_blank" rel="noopener noreferrer">
+              <Link to="/docs">
                 <Button variant="secondary" size="lg">
                   Read the Docs
                   <ArrowRight className="w-5 h-5" />
                 </Button>
-              </a>
+              </Link>
             </div>
             <p className="mt-8 text-sm text-stellar-muted">
               No credit card required &nbsp;·&nbsp; Free Testnet tier &nbsp;·&nbsp; Open source

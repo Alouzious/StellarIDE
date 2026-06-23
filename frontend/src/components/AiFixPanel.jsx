@@ -96,8 +96,11 @@ export default function AiFixPanel({
         )}
 
         {status === 'error' && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
-            {error || 'AI fix failed. Check that GROQ_API_KEY is configured.'}
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 space-y-2">
+            <p>{error || 'AI fix failed. Check that GROQ_API_KEY is configured.'}</p>
+            <a href="/docs/ai-assistant" target="_blank" rel="noopener noreferrer" className="inline-flex text-stellar-accent hover:underline text-xs">
+              Read the docs
+            </a>
           </div>
         )}
 

@@ -14,14 +14,11 @@ export default function DevResourcesSection() {
     <section className="py-24 px-4 relative" id="resources">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-14">
-          <span className="inline-block px-3 py-1 text-xs font-semibold text-stellar-accent bg-stellar-accent/10 border border-stellar-accent/20 rounded-full mb-4">
-            Developer Resources
-          </span>
           <h2 className="text-3xl sm:text-4xl font-bold text-stellar-heading mb-4">
             Everything you need to build on Stellar
           </h2>
           <p className="text-lg text-stellar-muted max-w-2xl mx-auto">
-            Official docs, developer tools, and a thriving community — all in one place.
+            Official docs, developer tools, and a thriving community, all in one place.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

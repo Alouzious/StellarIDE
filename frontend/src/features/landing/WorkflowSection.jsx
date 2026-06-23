@@ -5,7 +5,7 @@ const steps = [
     icon: UserPlus,
     step: '01',
     title: 'Create an Account',
-    description: 'Sign up with email or GitHub/Google OAuth — no credit card, no CLI install.',
+    description: 'Sign up with email or GitHub/Google OAuth. No credit card, no CLI install.',
   },
   {
     icon: Code2,
@@ -17,7 +17,7 @@ const steps = [
     icon: Play,
     step: '03',
     title: 'Compile & Test',
-    description: 'One-click WASM compilation and cargo test — full output in the IDE terminal.',
+    description: 'One-click WASM compilation and cargo test. Full output in the IDE terminal.',
   },
   {
     icon: Rocket,
@@ -38,10 +38,7 @@ export default function WorkflowSection() {
     <section id="workflow" className="py-24 border-t border-stellar-border bg-stellar-surface/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-sm font-semibold text-stellar-accent tracking-widest uppercase">
-            Workflow
-          </span>
-          <h2 className="mt-3 text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
+          <h2 className="text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
             From idea to deployed contract in minutes
           </h2>
           <p className="mt-4 text-lg text-stellar-muted">

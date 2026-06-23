@@ -32,10 +32,7 @@ export default function TrustSection() {
     <section className="py-24 border-t border-stellar-border bg-stellar-surface/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-sm font-semibold text-stellar-accent tracking-widest uppercase">
-            Testimonials
-          </span>
-          <h2 className="mt-3 text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
+          <h2 className="text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
             Loved by Stellar developers
           </h2>
         </div>
@@ -61,19 +58,6 @@ export default function TrustSection() {
                   <p className="text-xs text-stellar-muted">{t.role}</p>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Trust badges */}
-        <div className="mt-16 flex flex-wrap justify-center items-center gap-8">
-          {['Stellar Network', 'Soroban SDK', 'WASM Runtime', 'Rust Ecosystem', 'PostgreSQL'].map((badge) => (
-            <div
-              key={badge}
-              className="flex items-center gap-2 px-4 py-2 bg-stellar-card border border-stellar-border rounded-full text-sm text-stellar-muted"
-            >
-              <div className="w-2 h-2 rounded-full bg-stellar-accent/60" />
-              {badge}
             </div>
           ))}
         </div>

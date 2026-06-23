@@ -41,7 +41,7 @@ export default function HeroSection() {
               </h1>
               <p className="mt-6 text-xl text-stellar-muted max-w-lg leading-relaxed">
                 StellarIDE is the professional-grade, browser-native smart contract IDE for the Stellar ecosystem.
-                Write, test, deploy, collaborate live, and sync with GitHub — zero setup.
+                Write, test, deploy, collaborate live, and sync with GitHub. Zero setup.
               </p>
             </div>
 
@@ -50,6 +50,12 @@ export default function HeroSection() {
                 <Button size="lg">
                   <Zap className="w-5 h-5" />
                   Start Building Free
+                </Button>
+              </Link>
+              <Link to="/docs">
+                <Button variant="secondary" size="lg">
+                  Read the Docs
+                  <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
               <a href="#preview">

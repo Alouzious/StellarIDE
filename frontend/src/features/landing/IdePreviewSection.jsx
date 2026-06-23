@@ -20,14 +20,11 @@ export default function IdePreviewSection() {
     <section id="preview" className="py-24 border-t border-stellar-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-sm font-semibold text-stellar-accent tracking-widest uppercase">
-            IDE Preview
-          </span>
-          <h2 className="mt-3 text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
+          <h2 className="text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
             Your IDE. Your browser.
           </h2>
           <p className="mt-4 text-lg text-stellar-muted">
-            A full VS Code–inspired environment running entirely in your browser — no installs, no config.
+            A full VS Code inspired environment running entirely in your browser. No installs, no config.
           </p>
         </div>
 
@@ -41,7 +38,7 @@ export default function IdePreviewSection() {
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
                 <div className="w-3 h-3 rounded-full bg-green-500" />
               </div>
-              <span className="text-sm font-semibold text-stellar-heading">StellarIDE — my-token-contract</span>
+              <span className="text-sm font-semibold text-stellar-heading">StellarIDE · my-token-contract</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-400">

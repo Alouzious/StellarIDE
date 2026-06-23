@@ -178,6 +178,12 @@ function OutputPanel({
               <HelpCircle className="w-3 h-3" />
               Explain
             </button>
+            {hasFixContext && (
+              <a href="/docs/compile-test" target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-stellar-muted hover:text-stellar-accent transition-colors hidden sm:inline">
+                Read the docs
+              </a>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -1248,6 +1254,15 @@ export default function IdePage() {
 
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Docs
+          </a>
           <ResourcesMenu />
           <button onClick={() => { toggleChat(); if (deployPanelOpen) setDeployPanelOpen(false) }}
             className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-xs font-medium transition-all ${

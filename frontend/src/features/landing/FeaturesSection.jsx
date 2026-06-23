@@ -30,7 +30,7 @@ const features = [
     icon: GitHubIcon,
     title: 'GitHub Integration',
     description:
-      'Import repos from GitHub, edit in the IDE, and push commits back — no local git required.',
+      'Import repos from GitHub, edit in the IDE, and push commits back. No local git required.',
     accent: 'text-stellar-text',
     bg: 'bg-stellar-surface',
   },
@@ -38,7 +38,7 @@ const features = [
     icon: Sparkles,
     title: 'AI Assistant',
     description:
-      'Groq-powered chat, error fix, and explain — understands your Soroban contract code.',
+      'Groq-powered chat, error fix, and explain for your Soroban contract code.',
     accent: 'text-pink-400',
     bg: 'bg-pink-400/10',
   },
@@ -70,7 +70,7 @@ const features = [
     icon: Shield,
     title: 'Secure Auth',
     description:
-      'JWT authentication plus GitHub and Google OAuth. Encrypted storage and isolated execution.',
+      'Sign in with email, GitHub, or Google. Your projects and files are private to your account.',
     accent: 'text-green-400',
     bg: 'bg-green-400/10',
   },
@@ -78,7 +78,7 @@ const features = [
     icon: Layers,
     title: 'Soroban SDK Built-in',
     description:
-      'Pre-configured Soroban SDK integration so you spend time writing logic, not configuring toolchains.',
+      'Every new project comes with Soroban SDK ready to use. No Cargo.toml setup needed.',
     accent: 'text-indigo-400',
     bg: 'bg-indigo-400/10',
   },
@@ -89,14 +89,11 @@ export default function FeaturesSection() {
     <section id="features" className="py-24 border-t border-stellar-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-sm font-semibold text-stellar-accent tracking-widest uppercase">
-            Everything you need
-          </span>
-          <h2 className="mt-3 text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
+          <h2 className="text-4xl lg:text-5xl font-black text-stellar-heading tracking-tight">
             A complete Soroban development platform
           </h2>
           <p className="mt-4 text-lg text-stellar-muted">
-            Write, compile, test, deploy, collaborate, and sync with GitHub — all in one browser workspace.
+            Write, compile, test, deploy, collaborate, and sync with GitHub, all in one browser workspace.
             No local install required.
           </p>
         </div>

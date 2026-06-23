@@ -16,8 +16,8 @@ export default function Footer() {
     {
       title: 'Developers',
       links: [
-        { label: 'Documentation', href: '#' },
-        { label: 'API Reference', href: '#' },
+        { label: 'Documentation', href: '/docs' },
+        { label: 'API Reference', href: '/docs/api' },
         { label: 'Changelog', href: '#' },
       ],
     },
@@ -64,9 +64,15 @@ export default function Footer() {
               <ul className="space-y-3">
                 {col.links.map((link) => (
                   <li key={link.label}>
-                    <a href={link.href} className="text-sm text-stellar-muted hover:text-white transition-colors">
-                      {link.label}
-                    </a>
+                    {link.href.startsWith('/') ? (
+                      <Link to={link.href} className="text-sm text-stellar-muted hover:text-white transition-colors">
+                        {link.label}
+                      </Link>
+                    ) : (
+                      <a href={link.href} className="text-sm text-stellar-muted hover:text-white transition-colors">
+                        {link.label}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>
