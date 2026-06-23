@@ -23,10 +23,15 @@ const useCollabStore = create((set, get) => ({
 
   setPresence: (users) => set({ presence: users || [] }),
 
-  setFileConnectionStatus: (fileConnectionStatus) => set({ fileConnectionStatus }),
+  setFileConnectionStatus: (fileConnectionStatus) =>
+    set((s) =>
+      s.fileConnectionStatus === fileConnectionStatus ? s : { fileConnectionStatus }
+    ),
 
   setProjectConnectionStatus: (projectConnectionStatus) =>
-    set({ projectConnectionStatus }),
+    set((s) =>
+      s.projectConnectionStatus === projectConnectionStatus ? s : { projectConnectionStatus }
+    ),
 
   setDeployLock: (deployLock) => set({ deployLock }),
 

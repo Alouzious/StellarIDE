@@ -875,6 +875,7 @@ export default function IdePage() {
   const [shareOpen, setShareOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const projectCollabRef = useRef(null)
+  const collabCallbacksRef = useRef({})
   const readOnly = isReadOnly()
   const fileConnectionStatus = useCollabStore((s) => s.fileConnectionStatus)
   const projectConnectionStatus = useCollabStore((s) => s.projectConnectionStatus)
@@ -915,6 +916,21 @@ export default function IdePage() {
     }
   }
 
+  collabCallbacksRef.current = {
+    applyFileTreeUpdate,
+    toast,
+    loadFiles,
+    appendLog,
+    appendStreamLine,
+    beginRemoteTerminal,
+    finishRemoteTerminal,
+    setPresence,
+    setDeployLock,
+    handleSessionRestored,
+    userId: user?.id,
+    setBottomPanelOpen,
+  }
+
   const sendFileTreeUpdate = (payload, optimistic = true) => {
     if (optimistic) {
       applyFileTreeUpdate({ ...payload, project_id: projectId })
@@ -929,47 +945,45 @@ export default function IdePage() {
     projectCollabRef.current = new ProjectCollabProvider({
       url,
       userId: user.id,
-      onFileTreeUpdate: (msg) => applyFileTreeUpdate({ ...msg, project_id: projectId }),
-      onFileTreeError: (msg) => {
-        toast.error(msg.message || 'File tree sync failed')
-        loadFiles(projectId)
+      onFileTreeUpdate: (msg) => {
+        collabCallbacksRef.current.applyFileTreeUpdate({ ...msg, project_id: projectId })
       },
-      onPresence: (users) => setPresence(users),
+      onFileTreeError: (msg) => {
+        collabCallbacksRef.current.toast.error(msg.message || 'File tree sync failed')
+        collabCallbacksRef.current.loadFiles(projectId)
+      },
+      onPresence: (users) => collabCallbacksRef.current.setPresence(users),
       onStatus: setProjectConnectionStatus,
       onCompileOutput: () => {},
       onTestOutput: () => {},
       onTerminalStarted: (msg) => {
-        if (msg.user_id === user.id) return
-        setBottomPanelOpen(true)
-        beginRemoteTerminal(msg)
+        if (msg.user_id === collabCallbacksRef.current.userId) return
+        collabCallbacksRef.current.setBottomPanelOpen(true)
+        collabCallbacksRef.current.beginRemoteTerminal(msg)
       },
       onTerminalOutput: (msg) => {
-        if (msg.user_id === user.id) return
-        appendStreamLine(msg.data)
+        if (msg.user_id === collabCallbacksRef.current.userId) return
+        collabCallbacksRef.current.appendStreamLine(msg.data)
       },
       onTerminalDone: (msg) => {
-        if (msg.user_id === user.id) return
-        finishRemoteTerminal(msg)
+        if (msg.user_id === collabCallbacksRef.current.userId) return
+        collabCallbacksRef.current.finishRemoteTerminal(msg)
       },
       onDeployStarted: (msg) => {
-        setDeployLock({ user_id: msg.user_id, user_name: msg.user_name })
-        if (msg.user_id !== user.id) {
-          appendLog(`${msg.user_name} is deploying…`, 'warning')
+        collabCallbacksRef.current.setDeployLock({ user_id: msg.user_id, user_name: msg.user_name })
+        if (msg.user_id !== collabCallbacksRef.current.userId) {
+          collabCallbacksRef.current.appendLog(`${msg.user_name} is deploying…`, 'warning')
         }
       },
-      onDeployFinished: () => setDeployLock(null),
-      onSessionRestored: handleSessionRestored,
+      onDeployFinished: () => collabCallbacksRef.current.setDeployLock(null),
+      onSessionRestored: (reason) => collabCallbacksRef.current.handleSessionRestored(reason),
     })
 
     return () => {
       projectCollabRef.current?.destroy()
       projectCollabRef.current = null
     }
-  }, [
-    projectId, token, user?.id, applyFileTreeUpdate, setPresence,
-    setProjectConnectionStatus, appendLog, appendStreamLine, beginRemoteTerminal,
-    finishRemoteTerminal, loadFiles, toast, setDeployLock,
-  ])
+  }, [projectId, token, user?.id, setProjectConnectionStatus])
 
   const startDrag = (e) => {
     e.preventDefault()

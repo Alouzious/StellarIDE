@@ -69,10 +69,13 @@ class CollabWebSocket {
     this.pingTimer = null
     this.reconnectAttempts = 0
     this.connectionId = getOrCreateConnectionId()
+    this.lastStatus = null
     this._connect()
   }
 
   _setStatus(status) {
+    if (this.lastStatus === status) return
+    this.lastStatus = status
     this.onStatus?.(status, this.label)
   }
 

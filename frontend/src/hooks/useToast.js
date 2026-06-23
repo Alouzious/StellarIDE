@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 let toastId = 0
 
@@ -14,12 +14,15 @@ export default function useToast() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const toast = {
-    success: (msg) => addToast(msg, 'success'),
-    error: (msg) => addToast(msg, 'error'),
-    warning: (msg) => addToast(msg, 'warning'),
-    info: (msg) => addToast(msg, 'info'),
-  }
+  const toast = useMemo(
+    () => ({
+      success: (msg) => addToast(msg, 'success'),
+      error: (msg) => addToast(msg, 'error'),
+      warning: (msg) => addToast(msg, 'warning'),
+      info: (msg) => addToast(msg, 'info'),
+    }),
+    [addToast]
+  )
 
   return { toasts, toast, removeToast }
 }
