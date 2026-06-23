@@ -99,6 +99,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/ai/chat", post(handlers::ai::chat))
         .route("/projects/:id/ai-fix", post(handlers::ai::ai_fix))
         .route("/projects/:id/ai-explain", post(handlers::ai::ai_explain))
+        .route("/projects/:id/ai/chat", post(handlers::ai::project_chat))
         .route(
             "/projects/:id/collaborators",
             get(handlers::collaborators::list_collaborators),

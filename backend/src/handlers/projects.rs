@@ -14,6 +14,7 @@ use crate::{
         project::{CreateProjectRequest, Project, UpdateProjectRequest},
         project_file::{ProjectFile, SaveFileRequest},
     },
+    services::collab::CollabMessage,
     services::soroban,
     AppState,
 };
@@ -201,6 +202,19 @@ pub async fn compile_project(
         .await;
     }
 
+    let user_name = user_display_name(&state, auth.id).await;
+    state.collab.broadcast_project(
+        project_id,
+        &CollabMessage::CompileOutput {
+            user_id: auth.id,
+            user_name,
+            command: "cargo build --target wasm32-unknown-unknown --release".into(),
+            lines: result.logs.clone(),
+            success: result.success,
+            status: result.status.clone(),
+        },
+    );
+
     Ok(Json(json!(result)))
 }
 
@@ -216,6 +230,19 @@ pub async fn test_project(
     let result = soroban::run_tests(project_id, &files, &state.config, require_cargo)
         .await
         .map_err(AppError::Internal)?;
+
+    let user_name = user_display_name(&state, auth.id).await;
+    state.collab.broadcast_project(
+        project_id,
+        &CollabMessage::TestOutput {
+            user_id: auth.id,
+            user_name,
+            lines: result.logs.clone(),
+            success: result.success,
+            status: result.status.clone(),
+        },
+    );
+
     Ok(Json(json!(result)))
 }
 
@@ -233,6 +260,16 @@ pub async fn deploy_project(
     Json(body): Json<DeployProjectRequest>,
 ) -> Result<Json<Value>> {
     ensure_editor_access(auth.id, project_id, &state).await?;
+
+    if let Some(existing) = state.collab.deploy_locks.get(&project_id) {
+        if existing.user_id != auth.id {
+            return Err(AppError::Conflict(format!(
+                "{} is already deploying this project. Wait for it to finish.",
+                existing.user_name
+            )));
+        }
+    }
+
     let wallet_address = body
         .wallet_address
         .as_deref()
@@ -244,10 +281,27 @@ pub async fn deploy_project(
             "Wallet address is required. Connect Freighter before deploying.".into(),
         ));
     }
+
+    let user_name = user_display_name(&state, auth.id).await;
+    state.collab.deploy_locks.insert(
+        project_id,
+        crate::services::collab::DeployLock {
+            user_id: auth.id,
+            user_name: user_name.clone(),
+        },
+    );
+    state.collab.broadcast_project(
+        project_id,
+        &CollabMessage::DeployStarted {
+            user_id: auth.id,
+            user_name: user_name.clone(),
+        },
+    );
+
     let project = load_project(project_id, &state).await?;
     let files = load_project_files(project_id, &state).await?;
     let require_cargo = project_requires_cargo(&project);
-    let result = soroban::run_deploy(
+    let deploy_result = soroban::run_deploy(
         project_id,
         &files,
         &state.config,
@@ -258,8 +312,34 @@ pub async fn deploy_project(
         },
         require_cargo,
     )
-    .await
-    .map_err(AppError::Internal)?;
+    .await;
+
+    state.collab.deploy_locks.remove(&project_id);
+
+    let result = match deploy_result {
+        Ok(r) => r,
+        Err(err) => {
+            state.collab.broadcast_project(
+                project_id,
+                &CollabMessage::DeployFinished {
+                    user_id: auth.id,
+                    success: false,
+                    message: err.to_string(),
+                },
+            );
+            return Err(AppError::Internal(err));
+        }
+    };
+
+    state.collab.broadcast_project(
+        project_id,
+        &CollabMessage::DeployFinished {
+            user_id: auth.id,
+            success: result.success,
+            message: result.message.clone(),
+        },
+    );
+
     Ok(Json(json!(result)))
 }
 
@@ -310,6 +390,17 @@ async fn load_project(project_id: Uuid, state: &AppState) -> Result<Project> {
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound)
+}
+
+async fn user_display_name(state: &AppState, user_id: Uuid) -> String {
+    sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|email| email.split('@').next().unwrap_or("user").to_string())
+        .unwrap_or_else(|| "user".to_string())
 }
 
 fn project_requires_cargo(project: &Project) -> bool {
