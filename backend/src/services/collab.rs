@@ -85,6 +85,24 @@ pub enum CollabMessage {
         success: bool,
         message: String,
     },
+    TerminalStarted {
+        user_id: Uuid,
+        user_name: String,
+        operation: String,
+    },
+    TerminalOutput {
+        user_id: Uuid,
+        user_name: String,
+        operation: String,
+        data: String,
+    },
+    TerminalDone {
+        user_id: Uuid,
+        user_name: String,
+        operation: String,
+        success: bool,
+        message: String,
+    },
     SessionRestored,
     Error {
         message: String,

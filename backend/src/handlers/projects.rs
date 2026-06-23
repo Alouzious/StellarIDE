@@ -1,9 +1,17 @@
 use axum::{
     extract::{Path, State},
+    http::{header, HeaderValue},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     Extension, Json,
 };
+use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 use crate::{
@@ -341,6 +349,362 @@ pub async fn deploy_project(
     );
 
     Ok(Json(json!(result)))
+}
+
+fn sse_response(rx: tokio::sync::mpsc::Receiver<String>) -> Response {
+    let stream = ReceiverStream::new(rx).map(|data| -> std::result::Result<Event, Infallible> {
+        Ok(Event::default().data(data))
+    });
+    let mut response = Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    response
+}
+
+fn terminal_line_sink(
+    tx: tokio::sync::mpsc::Sender<String>,
+    state: AppState,
+    project_id: Uuid,
+    user_id: Uuid,
+    user_name: String,
+    operation: &'static str,
+) -> soroban::LineSink {
+    soroban::line_sink(move |line| {
+        let _ = tx.try_send(line.clone());
+        state.collab.broadcast_project(
+            project_id,
+            &CollabMessage::TerminalOutput {
+                user_id,
+                user_name: user_name.clone(),
+                operation: operation.to_string(),
+                data: line,
+            },
+        );
+    })
+}
+
+pub async fn compile_project_stream(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Response> {
+    ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
+    let files = load_project_files(project_id, &state).await?;
+    let require_cargo = project_requires_cargo(&project);
+    let user_name = user_display_name(&state, auth.id).await;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+    let state_bg = state.clone();
+    let auth_id = auth.id;
+
+    tokio::spawn(async move {
+        state_bg.collab.broadcast_project(
+            project_id,
+            &CollabMessage::TerminalStarted {
+                user_id: auth_id,
+                user_name: user_name.clone(),
+                operation: "compile".into(),
+            },
+        );
+
+        let on_line = terminal_line_sink(
+            tx.clone(),
+            state_bg.clone(),
+            project_id,
+            auth_id,
+            user_name.clone(),
+            "compile",
+        );
+
+        let result = soroban::run_compile_stream(
+            project_id,
+            &files,
+            &state_bg.config,
+            require_cargo,
+            on_line,
+        )
+        .await;
+
+        match result {
+            Ok(r) => {
+                if let Some(ref wasm_b64) = r.wasm_base64 {
+                    let _ = sqlx::query(
+                        r#"INSERT INTO project_files (id, project_id, file_path, content, language, created_at, updated_at)
+                           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                           ON CONFLICT (project_id, file_path)
+                           DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()"#,
+                    )
+                    .bind(uuid::Uuid::new_v4())
+                    .bind(project_id)
+                    .bind("target/stellaride_contract.wasm")
+                    .bind(wasm_b64)
+                    .bind("wasm")
+                    .execute(&state_bg.db)
+                    .await;
+                }
+
+                if r.success {
+                    let _ = tx.send("[DONE]".into()).await;
+                } else {
+                    let _ = tx.send("[ERROR] exit code 1".into()).await;
+                }
+
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::CompileOutput {
+                        user_id: auth_id,
+                        user_name: user_name.clone(),
+                        command: "cargo build --target wasm32-unknown-unknown --release".into(),
+                        lines: vec![],
+                        success: r.success,
+                        status: r.status.clone(),
+                    },
+                );
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::TerminalDone {
+                        user_id: auth_id,
+                        user_name,
+                        operation: "compile".into(),
+                        success: r.success,
+                        message: r.message,
+                    },
+                );
+            }
+            Err(err) => {
+                let _ = tx
+                    .send(format!("[ERROR] exit code 1 — {err}"))
+                    .await;
+            }
+        }
+    });
+
+    Ok(sse_response(rx))
+}
+
+pub async fn test_project_stream(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Response> {
+    ensure_editor_access(auth.id, project_id, &state).await?;
+    let project = load_project(project_id, &state).await?;
+    let files = load_project_files(project_id, &state).await?;
+    let require_cargo = project_requires_cargo(&project);
+    let user_name = user_display_name(&state, auth.id).await;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+    let state_bg = state.clone();
+    let auth_id = auth.id;
+
+    tokio::spawn(async move {
+        state_bg.collab.broadcast_project(
+            project_id,
+            &CollabMessage::TerminalStarted {
+                user_id: auth_id,
+                user_name: user_name.clone(),
+                operation: "test".into(),
+            },
+        );
+
+        let on_line = terminal_line_sink(
+            tx.clone(),
+            state_bg.clone(),
+            project_id,
+            auth_id,
+            user_name.clone(),
+            "test",
+        );
+
+        let result = soroban::run_tests_stream(
+            project_id,
+            &files,
+            &state_bg.config,
+            require_cargo,
+            on_line,
+        )
+        .await;
+
+        match result {
+            Ok(r) => {
+                if r.success {
+                    let _ = tx.send("[DONE]".into()).await;
+                } else {
+                    let _ = tx.send("[ERROR] exit code 1".into()).await;
+                }
+
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::TestOutput {
+                        user_id: auth_id,
+                        user_name: user_name.clone(),
+                        lines: vec![],
+                        success: r.success,
+                        status: r.status.clone(),
+                    },
+                );
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::TerminalDone {
+                        user_id: auth_id,
+                        user_name,
+                        operation: "test".into(),
+                        success: r.success,
+                        message: r.message,
+                    },
+                );
+            }
+            Err(err) => {
+                let _ = tx
+                    .send(format!("[ERROR] exit code 1 — {err}"))
+                    .await;
+            }
+        }
+    });
+
+    Ok(sse_response(rx))
+}
+
+pub async fn deploy_project_stream(
+    Extension(auth): Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<DeployProjectRequest>,
+) -> Result<Response> {
+    ensure_editor_access(auth.id, project_id, &state).await?;
+
+    if let Some(existing) = state.collab.deploy_locks.get(&project_id) {
+        if existing.user_id != auth.id {
+            return Err(AppError::Conflict(format!(
+                "{} is already deploying this project. Wait for it to finish.",
+                existing.user_name
+            )));
+        }
+    }
+
+    let wallet_address = body
+        .wallet_address
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if wallet_address.is_empty() {
+        return Err(AppError::BadRequest(
+            "Wallet address is required. Connect Freighter before deploying.".into(),
+        ));
+    }
+
+    let user_name = user_display_name(&state, auth.id).await;
+    state.collab.deploy_locks.insert(
+        project_id,
+        crate::services::collab::DeployLock {
+            user_id: auth.id,
+            user_name: user_name.clone(),
+        },
+    );
+    state.collab.broadcast_project(
+        project_id,
+        &CollabMessage::DeployStarted {
+            user_id: auth.id,
+            user_name: user_name.clone(),
+        },
+    );
+
+    let project = load_project(project_id, &state).await?;
+    let files = load_project_files(project_id, &state).await?;
+    let require_cargo = project_requires_cargo(&project);
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+    let state_bg = state.clone();
+    let auth_id = auth.id;
+    let deploy_request = soroban::DeployRequest {
+        wallet_address,
+        network: body.network,
+        secret_key: body.secret_key,
+    };
+
+    tokio::spawn(async move {
+        state_bg.collab.broadcast_project(
+            project_id,
+            &CollabMessage::TerminalStarted {
+                user_id: auth_id,
+                user_name: user_name.clone(),
+                operation: "deploy".into(),
+            },
+        );
+
+        let on_line = terminal_line_sink(
+            tx.clone(),
+            state_bg.clone(),
+            project_id,
+            auth_id,
+            user_name.clone(),
+            "deploy",
+        );
+
+        let deploy_result = soroban::run_deploy_stream(
+            project_id,
+            &files,
+            &state_bg.config,
+            deploy_request,
+            require_cargo,
+            on_line,
+        )
+        .await;
+
+        state_bg.collab.deploy_locks.remove(&project_id);
+
+        match deploy_result {
+            Ok(r) => {
+                if r.success {
+                    let _ = tx.send("[DONE]".into()).await;
+                } else {
+                    let _ = tx.send("[ERROR] exit code 1".into()).await;
+                }
+
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::DeployFinished {
+                        user_id: auth_id,
+                        success: r.success,
+                        message: r.message.clone(),
+                    },
+                );
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::TerminalDone {
+                        user_id: auth_id,
+                        user_name,
+                        operation: "deploy".into(),
+                        success: r.success,
+                        message: r.message,
+                    },
+                );
+            }
+            Err(err) => {
+                state_bg.collab.broadcast_project(
+                    project_id,
+                    &CollabMessage::DeployFinished {
+                        user_id: auth_id,
+                        success: false,
+                        message: err.to_string(),
+                    },
+                );
+                let _ = tx
+                    .send(format!("[ERROR] exit code 1 — {err}"))
+                    .await;
+            }
+        }
+    });
+
+    Ok(sse_response(rx))
 }
 
 pub async fn audit_project(

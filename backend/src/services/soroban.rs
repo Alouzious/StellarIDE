@@ -1,12 +1,18 @@
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     time::Instant,
 };
 
 use anyhow::{anyhow, Context};
 use serde::Serialize;
-use tokio::{fs, process::Command, time::timeout};
+use tokio::{
+    fs,
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+    time::timeout,
+};
 use uuid::Uuid;
 
 use base64::{engine::general_purpose, Engine as _};
@@ -36,6 +42,15 @@ pub struct DeployRequest {
 }
 
 const NO_CARGO_MSG: &str = "No Cargo.toml found. Please select the folder containing your Soroban contract.";
+
+pub type LineSink = Arc<dyn Fn(String) + Send + Sync>;
+
+pub fn line_sink<F>(f: F) -> LineSink
+where
+    F: Fn(String) + Send + Sync + 'static,
+{
+    Arc::new(f)
+}
 
 pub async fn run_compile(
     project_id: Uuid,
@@ -343,12 +358,77 @@ struct CommandResult {
     logs: Vec<String>,
 }
 
-async fn execute_script(
+async fn read_stream_lines<R>(
+    reader: R,
+    on_line: LineSink,
+    logs: Arc<tokio::sync::Mutex<Vec<String>>>,
+) where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let mut lines = BufReader::new(reader).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.is_empty() {
+            continue;
+        }
+        logs.lock().await.push(line.clone());
+        on_line(line);
+    }
+}
+
+async fn execute_script_streaming(
     config: &Config,
     workspace: &Path,
     script: &str,
-) -> anyhow::Result<CommandResult> {
-    let mut command = if config.soroban_execution_mode.eq_ignore_ascii_case("local") {
+    on_line: LineSink,
+) -> anyhow::Result<i32> {
+    let mut command = build_shell_command(config, workspace, script);
+    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let logs: Arc<tokio::sync::Mutex<Vec<String>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+    let run = async {
+        let mut child = command.spawn().context("Failed to spawn command")?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        let mut tasks = Vec::new();
+        if let Some(out) = stdout {
+            let sink = on_line.clone();
+            let logs = logs.clone();
+            tasks.push(tokio::spawn(read_stream_lines(out, sink, logs)));
+        }
+        if let Some(err) = stderr {
+            let sink = on_line.clone();
+            let logs = logs.clone();
+            tasks.push(tokio::spawn(read_stream_lines(err, sink, logs)));
+        }
+
+        for task in tasks {
+            let _ = task.await;
+        }
+
+        let status = child.wait().await.context("Failed to wait for command")?;
+        Ok(status.code().unwrap_or(-1))
+    };
+
+    timeout(
+        std::time::Duration::from_secs(config.soroban_timeout_seconds),
+        run,
+    )
+    .await
+    .map_err(|_| {
+        anyhow!(
+            "Command timed out after {} seconds",
+            config.soroban_timeout_seconds
+        )
+    })?
+}
+
+fn build_shell_command(config: &Config, workspace: &Path, script: &str) -> Command {
+    if config.soroban_execution_mode.eq_ignore_ascii_case("local") {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script);
         cmd.current_dir(workspace);
@@ -365,37 +445,337 @@ async fn execute_script(
             .arg("/workspace")
             .arg(&config.soroban_docker_image)
             .arg("sh")
-            .arg("-c")  // no -l: preserve image ENV PATH (cargo/rustup in /usr/local/cargo/bin)
+            .arg("-c")
             .arg(script);
         cmd
-    };
+    }
+}
 
-    command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+async fn execute_script(
+    config: &Config,
+    workspace: &Path,
+    script: &str,
+) -> anyhow::Result<CommandResult> {
+    let collected: Arc<tokio::sync::Mutex<Vec<String>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let logs = collected.clone();
+    let sink = line_sink(move |line| {
+        if let Ok(mut guard) = logs.try_lock() {
+            guard.push(line);
+        }
+    });
 
-    let output = timeout(
-        std::time::Duration::from_secs(config.soroban_timeout_seconds),
-        command.output(),
-    )
-    .await
-    .map_err(|_| {
-        anyhow!(
-            "Command timed out after {} seconds",
-            config.soroban_timeout_seconds
-        )
-    })?
-    .context("Failed to execute command")?;
-
-    let mut logs = Vec::new();
-    logs.extend(split_output(&output.stdout));
-    logs.extend(split_output(&output.stderr));
-
+    let code = execute_script_streaming(config, workspace, script, sink).await?;
+    let logs = collected.lock().await.clone();
     Ok(CommandResult {
-        success: output.status.success(),
+        success: code == 0,
         logs,
     })
+}
+
+pub async fn run_compile_stream(
+    project_id: Uuid,
+    files: &[ProjectFile],
+    config: &Config,
+    require_cargo_toml: bool,
+    on_line: LineSink,
+) -> anyhow::Result<SorobanCommandResponse> {
+    let workspace = match write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await {
+        Ok(w) => w,
+        Err(err) if err.to_string().contains(NO_CARGO_MSG) => {
+            on_line(NO_CARGO_MSG.into());
+            return Ok(SorobanCommandResponse {
+                operation: "compile",
+                status: "failed".into(),
+                message: NO_CARGO_MSG.into(),
+                logs: vec![NO_CARGO_MSG.into()],
+                success: false,
+                duration_ms: 0,
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            });
+        }
+        Err(err) => return Err(err),
+    };
+
+    let start = Instant::now();
+    let script = "rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown --release";
+    let exit_code = execute_script_streaming(config, &workspace, script, on_line.clone()).await;
+
+    match exit_code {
+        Ok(code) => {
+            let success = code == 0;
+            let wasm_artifact = if success {
+                find_wasm_artifact(&workspace).await
+            } else {
+                None
+            };
+            let wasm_base64 = if success {
+                if let Some(ref p) = wasm_artifact {
+                    fs::read(workspace.join(p))
+                        .await
+                        .ok()
+                        .map(|b| general_purpose::STANDARD.encode(&b))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            cleanup_workspace(&workspace).await;
+            let wasm_saved = wasm_base64.is_some();
+            if wasm_saved {
+                on_line("   WASM saved — ready to deploy without recompiling ✓".into());
+            }
+            Ok(SorobanCommandResponse {
+                operation: "compile",
+                status: if success { "success" } else { "failed" }.into(),
+                message: if success {
+                    "Soroban contract compiled successfully".into()
+                } else {
+                    "Compile failed".into()
+                },
+                logs: vec![],
+                success,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact,
+                wasm_base64,
+                wasm_saved,
+                contract_id: None,
+            })
+        }
+        Err(err) => {
+            cleanup_workspace(&workspace).await;
+            let msg = format!("Compile error: {err}");
+            on_line(msg.clone());
+            Ok(SorobanCommandResponse {
+                operation: "compile",
+                status: "failed".into(),
+                message: err.to_string(),
+                logs: vec![msg],
+                success: false,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            })
+        }
+    }
+}
+
+pub async fn run_tests_stream(
+    project_id: Uuid,
+    files: &[ProjectFile],
+    config: &Config,
+    require_cargo_toml: bool,
+    on_line: LineSink,
+) -> anyhow::Result<SorobanCommandResponse> {
+    let workspace = match write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await {
+        Ok(w) => w,
+        Err(err) if err.to_string().contains(NO_CARGO_MSG) => {
+            on_line(NO_CARGO_MSG.into());
+            return Ok(SorobanCommandResponse {
+                operation: "test",
+                status: "failed".into(),
+                message: NO_CARGO_MSG.into(),
+                logs: vec![NO_CARGO_MSG.into()],
+                success: false,
+                duration_ms: 0,
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            });
+        }
+        Err(err) => return Err(err),
+    };
+
+    let start = Instant::now();
+    let exit_code =
+        execute_script_streaming(config, &workspace, "cargo test -- --nocapture", on_line.clone()).await;
+    cleanup_workspace(&workspace).await;
+
+    match exit_code {
+        Ok(code) => {
+            let success = code == 0;
+            Ok(SorobanCommandResponse {
+                operation: "test",
+                status: if success { "success" } else { "failed" }.into(),
+                message: if success {
+                    "All tests passed".into()
+                } else {
+                    "Some tests failed".into()
+                },
+                logs: vec![],
+                success,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            })
+        }
+        Err(err) => {
+            let msg = format!("Test error: {err}");
+            on_line(msg.clone());
+            Ok(SorobanCommandResponse {
+                operation: "test",
+                status: "failed".into(),
+                message: err.to_string(),
+                logs: vec![msg],
+                success: false,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            })
+        }
+    }
+}
+
+pub async fn run_deploy_stream(
+    project_id: Uuid,
+    files: &[ProjectFile],
+    config: &Config,
+    request: DeployRequest,
+    require_cargo_toml: bool,
+    on_line: LineSink,
+) -> anyhow::Result<SorobanCommandResponse> {
+    let workspace = write_workspace(project_id, files, &config.soroban_sdk_version, require_cargo_toml).await?;
+    let start = Instant::now();
+
+    let network = request
+        .network
+        .unwrap_or_else(|| config.soroban_network.clone())
+        .to_lowercase();
+
+    let secret = match request.secret_key.as_deref().filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => match config.soroban_deploy_secret_key.as_deref() {
+            Some(s) => s.to_string(),
+            None => {
+                cleanup_workspace(&workspace).await;
+                let msg = "No secret key provided. Generate a wallet in the Deploy panel.".to_string();
+                on_line(msg.clone());
+                on_line("Tip: Complete Steps 1 and 2 in the Deploy panel first.".into());
+                return Ok(SorobanCommandResponse {
+                    operation: "deploy",
+                    status: "failed".into(),
+                    message: msg,
+                    logs: vec![],
+                    success: false,
+                    duration_ms: start.elapsed().as_millis(),
+                    wasm_artifact: None,
+                    wasm_base64: None,
+                    wasm_saved: false,
+                    contract_id: None,
+                });
+            }
+        }
+    };
+
+    on_line(format!("   Network: {network}"));
+    on_line(format!(
+        "   Wallet: {}...",
+        request.wallet_address.chars().take(8).collect::<String>()
+    ));
+
+    let cli_bin = {
+        let p = config.soroban_cli_path.trim();
+        if p.eq_ignore_ascii_case("soroban") {
+            "stellar".to_string()
+        } else {
+            p.to_string()
+        }
+    };
+    let passphrase = network_passphrase(&network);
+    let net_flag = if network.eq_ignore_ascii_case("mainnet") {
+        "mainnet"
+    } else {
+        "testnet"
+    };
+    let key_name = format!("sid_{}", Uuid::new_v4().simple());
+    let deploy_script = format!(
+        r#"set -e
+mkdir -p /root/.config/stellar/identity
+printf 'secret_key = "%s"\n' {secret_escaped} > /root/.config/stellar/identity/{key_name}.toml
+WASM_PATH=$(find target -name '*.wasm' 2>/dev/null | head -n 1)
+if [ -z "$WASM_PATH" ]; then
+  rustup target add wasm32-unknown-unknown
+  cargo build --target wasm32-unknown-unknown --release
+  WASM_PATH=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' | head -n 1)
+fi
+if [ -z "$WASM_PATH" ]; then echo 'No WASM artifact found' >&2; exit 1; fi
+{cli_bin} contract deploy --wasm "$WASM_PATH" --source {key_name} --global --network {net_flag} --network-passphrase "{passphrase}"
+rm -f /root/.config/stellar/identity/{key_name}.toml"#,
+        secret_escaped = shell_escape(&secret),
+        key_name = key_name,
+        cli_bin = cli_bin,
+        net_flag = net_flag,
+        passphrase = passphrase,
+    );
+
+    let collected: Arc<tokio::sync::Mutex<Vec<String>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let collected_clone = collected.clone();
+    let outer = on_line.clone();
+    let sink = line_sink(move |line| {
+        if let Ok(mut guard) = collected_clone.try_lock() {
+            guard.push(line.clone());
+        }
+        outer(line);
+    });
+
+    let exit_code = execute_script_streaming(config, &workspace, &deploy_script, sink).await;
+    cleanup_workspace(&workspace).await;
+    let log_lines = collected.lock().await.clone();
+    let contract_id = log_lines
+        .iter()
+        .rev()
+        .find_map(|line| parse_contract_id(line));
+
+    match exit_code {
+        Ok(code) => {
+            let success = code == 0;
+            if let Some(ref id) = contract_id {
+                on_line(format!("   Contract ID: {id}"));
+            }
+            Ok(SorobanCommandResponse {
+                operation: "deploy",
+                status: if success { "success" } else { "failed" }.into(),
+                message: if success {
+                    "Deployment finished".into()
+                } else {
+                    "Deployment failed".into()
+                },
+                logs: log_lines,
+                success,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id,
+            })
+        }
+        Err(err) => {
+            let msg = format!("Deploy error: {err}");
+            on_line(msg.clone());
+            Ok(SorobanCommandResponse {
+                operation: "deploy",
+                status: "failed".into(),
+                message: err.to_string(),
+                logs: vec![msg],
+                success: false,
+                duration_ms: start.elapsed().as_millis(),
+                wasm_artifact: None,
+                wasm_base64: None,
+                wasm_saved: false,
+                contract_id: None,
+            })
+        }
+    }
 }
 
 async fn write_workspace(

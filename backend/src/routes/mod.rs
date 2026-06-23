@@ -86,10 +86,22 @@ pub fn build_router(state: AppState) -> Router {
             "/projects/:id/compile",
             post(handlers::projects::compile_project),
         )
+        .route(
+            "/projects/:id/compile/stream",
+            post(handlers::projects::compile_project_stream),
+        )
         .route("/projects/:id/test", post(handlers::projects::test_project))
+        .route(
+            "/projects/:id/test/stream",
+            post(handlers::projects::test_project_stream),
+        )
         .route(
             "/projects/:id/deploy",
             post(handlers::projects::deploy_project),
+        )
+        .route(
+            "/projects/:id/deploy/stream",
+            post(handlers::projects::deploy_project_stream),
         )
         .route(
             "/projects/:id/audit",
