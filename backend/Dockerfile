@@ -36,6 +36,9 @@ RUN curl -L https://github.com/stellar/stellar-cli/releases/download/v23.4.0/ste
 # wasm32 target for compile/test
 RUN rustup target add wasm32-unknown-unknown
 
+# Scout static analyzer for contract auditing (local execution on Render)
+RUN cargo install cargo-scout-audit --version 0.3.16
+
 WORKDIR /app
 COPY --from=builder /app/target/release/backend ./backend
 COPY --from=builder /app/migrations ./migrations
