@@ -9,6 +9,9 @@ const useChatStore = create((set, get) => ({
   isLoading: false,
   error: null,
   isOpen: false,
+  projectId: null,
+
+  setProjectId: (projectId) => set({ projectId }),
 
   toggleChat: () => set((state) => ({ isOpen: !state.isOpen })),
   openChat: () => set({ isOpen: true }),
@@ -17,18 +20,19 @@ const useChatStore = create((set, get) => ({
   clearMessages: () => set({ messages: [], error: null }),
 
   sendMessage: async (content) => {
-    const { messages } = get()
+    const { messages, projectId } = get()
 
     const userMessage = { role: 'user', content, id: nextId() }
     set({ messages: [...messages, userMessage], isLoading: true, error: null })
 
-    const chatMessages = [...messages, { role: 'user', content }].map(({ role, content }) => ({
+    const chatMessages = [...messages, { role: 'user', content }].map(({ role, content: c }) => ({
       role,
-      content,
+      content: c,
     }))
 
     try {
-      const { data } = await api.post('/ai/chat', { messages: chatMessages })
+      const endpoint = projectId ? `/projects/${projectId}/ai/chat` : '/ai/chat'
+      const { data } = await api.post(endpoint, { messages: chatMessages })
       const assistantMessage = {
         role: 'assistant',
         content: data.message,

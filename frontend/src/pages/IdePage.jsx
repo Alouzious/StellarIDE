@@ -101,11 +101,20 @@ function ResourcesMenu() {
   )
 }
 
-function FileTree({ files, activeFile, onSelect }) {
-  return <NestedFileTree files={files} activeFile={activeFile} onSelect={onSelect} />
+function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename }) {
+  return (
+    <NestedFileTree
+      files={files}
+      activeFile={activeFile}
+      onSelect={onSelect}
+      readOnly={readOnly}
+      onDelete={onDelete}
+      onRename={onRename}
+    />
+  )
 }
 
-function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning }) {
+function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning, readOnly }) {
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
   const colors = { info: 'text-stellar-text', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' }
@@ -117,11 +126,13 @@ function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning }) 
           <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide">Output</span>
           {hasErrors && (
             <div className="flex items-center gap-1.5 ml-2">
-              <button onClick={onFix} disabled={aiRunning}
-                className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
-                {aiRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                Fix with AI
-              </button>
+              {!readOnly && (
+                <button onClick={onFix} disabled={aiRunning}
+                  className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
+                  {aiRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  Fix with AI
+                </button>
+              )}
               <button onClick={onExplain} disabled={aiRunning}
                 className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 text-yellow-400 rounded text-xs font-medium transition-all disabled:opacity-50">
                 <HelpCircle className="w-3 h-3" />
@@ -508,17 +519,19 @@ export default function IdePage() {
   const { projects, fetchProjects } = useDashboardStore()
   const { logout, user, token } = useAuthStore()
   const {
-    role, presence, connectionStatus,
-    fetchRole, joinInvite, setPresence, setConnectionStatus, reset: resetCollab, isReadOnly,
+    role, presence,
+    fetchRole, joinInvite, setPresence,
+    setFileConnectionStatus, setProjectConnectionStatus,
+    setDeployLock, reset: resetCollab, isReadOnly,
   } = useCollabStore()
   const {
     project, files, activeFile, editorContent, outputLog,
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
-    applyFileTreeUpdate, debouncedSaveFile,
+    applyFileTreeUpdate, debouncedSaveFile, appendLog,
   } = useIdeStore()
-  const { isOpen: chatOpen, toggleChat, closeChat } = useChatStore()
+  const { isOpen: chatOpen, toggleChat, closeChat, setProjectId: setChatProjectId } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
 
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true)
@@ -530,13 +543,24 @@ export default function IdePage() {
   const [linkOpen, setLinkOpen] = useState(false)
   const projectCollabRef = useRef(null)
   const readOnly = isReadOnly()
+  const fileConnectionStatus = useCollabStore((s) => s.fileConnectionStatus)
+  const projectConnectionStatus = useCollabStore((s) => s.projectConnectionStatus)
+  const deployLock = useCollabStore((s) => s.deployLock)
+  const connectionStatus = useMemo(() => {
+    const statuses = [fileConnectionStatus, projectConnectionStatus]
+    if (statuses.some((s) => s === 'disconnected' || s === 'error')) return 'disconnected'
+    if (statuses.some((s) => s === 'reconnecting' || s === 'connecting')) return 'reconnecting'
+    if (statuses.every((s) => s === 'connected')) return 'connected'
+    return 'idle'
+  }, [fileConnectionStatus, projectConnectionStatus])
   const userName = user?.email?.split('@')[0] || 'user'
   const userColorHex = useMemo(() => userColor(user?.id || ''), [user?.id])
 
   useEffect(() => {
     if (projectId) fetchRole(projectId)
+    setChatProjectId(projectId || null)
     return () => resetCollab()
-  }, [projectId, fetchRole, resetCollab])
+  }, [projectId, fetchRole, resetCollab, setChatProjectId])
 
   useEffect(() => {
     const invite = searchParams.get('invite')
@@ -549,6 +573,22 @@ export default function IdePage() {
     })
   }, [projectId, searchParams, joinInvite, setSearchParams, toast])
 
+  const handleSessionRestored = (reason) => {
+    if (reason === 'restored') {
+      toast.info('Session restored from last saved state')
+      if (projectId) loadFiles(projectId)
+    } else if (reason === 'disconnected') {
+      toast.error('Collaboration disconnected — refresh if issues persist')
+    }
+  }
+
+  const sendFileTreeUpdate = (payload, optimistic = true) => {
+    if (optimistic) {
+      applyFileTreeUpdate({ ...payload, project_id: projectId })
+    }
+    projectCollabRef.current?.sendFileTreeUpdate(payload)
+  }
+
   useEffect(() => {
     if (!projectId || !token || !user?.id) return
 
@@ -557,15 +597,48 @@ export default function IdePage() {
       url,
       userId: user.id,
       onFileTreeUpdate: (msg) => applyFileTreeUpdate({ ...msg, project_id: projectId }),
+      onFileTreeError: (msg) => {
+        toast.error(msg.message || 'File tree sync failed')
+        loadFiles(projectId)
+      },
       onPresence: (users) => setPresence(users),
-      onStatus: setConnectionStatus,
+      onStatus: setProjectConnectionStatus,
+      onCompileOutput: (msg) => {
+        if (msg.user_id === user.id) return
+        appendLog(`[${msg.user_name}] ${msg.command}`, 'info')
+        ;(msg.lines || []).forEach((line) => appendLog(`   ${line}`, msg.success ? 'info' : 'error'))
+        appendLog(
+          (msg.success ? '✔  ' : '✖  ') + `${msg.user_name} finished compile (${msg.status})`,
+          msg.success ? 'success' : 'error'
+        )
+      },
+      onTestOutput: (msg) => {
+        if (msg.user_id === user.id) return
+        appendLog(`[${msg.user_name}] cargo test`, 'info')
+        ;(msg.lines || []).forEach((line) => appendLog(`   ${line}`, msg.success ? 'info' : 'error'))
+        appendLog(
+          (msg.success ? '✔  ' : '✖  ') + `${msg.user_name} finished tests (${msg.status})`,
+          msg.success ? 'success' : 'error'
+        )
+      },
+      onDeployStarted: (msg) => {
+        setDeployLock({ user_id: msg.user_id, user_name: msg.user_name })
+        if (msg.user_id !== user.id) {
+          appendLog(`${msg.user_name} is deploying…`, 'warning')
+        }
+      },
+      onDeployFinished: () => setDeployLock(null),
+      onSessionRestored: handleSessionRestored,
     })
 
     return () => {
       projectCollabRef.current?.destroy()
       projectCollabRef.current = null
     }
-  }, [projectId, token, user?.id, applyFileTreeUpdate, setPresence, setConnectionStatus])
+  }, [
+    projectId, token, user?.id, applyFileTreeUpdate, setPresence,
+    setProjectConnectionStatus, appendLog, loadFiles, toast, setDeployLock,
+  ])
 
   const startDrag = (e) => {
     e.preventDefault()
@@ -700,12 +773,12 @@ export default function IdePage() {
             {actionIcon(compileStatus, Play)}
             <span className="hidden sm:inline">Compile</span>
           </button>
-          <button onClick={handleTest} disabled={testStatus === 'running'}
+          <button onClick={handleTest} disabled={testStatus === 'running' || readOnly}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all disabled:opacity-50">
             {actionIcon(testStatus, TestTube)}
             <span className="hidden sm:inline">Test</span>
           </button>
-          <button onClick={handleDeployToggle}
+          <button onClick={handleDeployToggle} disabled={readOnly}
             className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-xs font-medium transition-all ${
               deployPanelOpen
                 ? 'bg-stellar-accent/15 border-stellar-accent/40 text-stellar-accent'
@@ -714,7 +787,7 @@ export default function IdePage() {
             {actionIcon(deployStatus, Rocket)}
             <span className="hidden sm:inline">Deploy</span>
           </button>
-          <button onClick={handleAudit} disabled={auditStatus === 'running'}
+          <button onClick={handleAudit} disabled={auditStatus === 'running' || readOnly}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all disabled:opacity-50">
             {actionIcon(auditStatus, Shield)}
             <span className="hidden sm:inline">Audit</span>
@@ -772,18 +845,11 @@ export default function IdePage() {
                   const name = window.prompt('New file path (e.g. src/helpers.rs)')
                   if (!name?.trim()) return
                   const path = name.trim()
-                  projectCollabRef.current?.sendFileTreeUpdate({
+                  sendFileTreeUpdate({
                     action: 'create',
                     file_path: path,
                     content: '',
                     language: path.endsWith('.toml') ? 'toml' : 'rust',
-                  })
-                  applyFileTreeUpdate({
-                    action: 'create',
-                    file_path: path,
-                    content: '',
-                    language: path.endsWith('.toml') ? 'toml' : 'rust',
-                    project_id: projectId,
                   })
                 }}
                 className="text-xs text-stellar-accent hover:underline"
@@ -792,12 +858,30 @@ export default function IdePage() {
               </button>
             )}
           </div>
-          <FileTree files={files} activeFile={activeFile} onSelect={setActiveFile} />
+          <FileTree
+            files={files}
+            activeFile={activeFile}
+            onSelect={setActiveFile}
+            readOnly={readOnly}
+            onDelete={(file) => {
+              if (!window.confirm(`Delete ${file.file_path}?`)) return
+              sendFileTreeUpdate({ action: 'delete', file_path: file.file_path })
+            }}
+            onRename={(file) => {
+              const newPath = window.prompt('Rename to path:', file.file_path)
+              if (!newPath?.trim() || newPath.trim() === file.file_path) return
+              sendFileTreeUpdate({
+                action: 'rename',
+                file_path: newPath.trim(),
+                old_path: file.file_path,
+              })
+            }}
+          />
         </div>
 
         {/* Editor + Output */}
         <div className="flex-1 flex flex-col min-w-0">
-          <PresenceBar presence={presence} connectionStatus={connectionStatus} />
+          <PresenceBar presence={presence} connectionStatus={connectionStatus} deployLock={deployLock} />
           {project?.github_owner && project?.github_repo ? (
             <GitHubPushBar
               project={project}
@@ -844,6 +928,8 @@ export default function IdePage() {
                 onSaveDebounced={(content) =>
                   debouncedSaveFile(projectId, activeFile.file_path, content)
                 }
+                onFileConnectionStatus={setFileConnectionStatus}
+                onSessionRestored={handleSessionRestored}
               />
             ) : (
               <Editor
@@ -884,6 +970,7 @@ export default function IdePage() {
                 onExplain={() => explainError(projectId)}
                 hasErrors={outputLog.some(l => l.level === 'error')}
                 aiRunning={aiStatus === 'running'}
+                readOnly={readOnly}
               />
             </div>
           )}
@@ -913,7 +1000,7 @@ export default function IdePage() {
               onMouseDown={startChatDrag}
               className="absolute top-0 left-0 bottom-0 w-1.5 cursor-col-resize hover:bg-stellar-accent/40 transition-colors z-10"
             />
-            <ChatPanel onClose={closeChat} />
+            <ChatPanel onClose={closeChat} projectId={projectId} readOnly={readOnly} />
           </div>
         )}
       </div>
