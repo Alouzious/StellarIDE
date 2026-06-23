@@ -76,6 +76,7 @@ export default function ImportGitHubModal({ open, onClose, onImported }) {
   const [loadingFolders, setLoadingFolders] = useState(false)
   const [folderError, setFolderError] = useState('')
   const [checking, setChecking] = useState(true)
+  const [importResult, setImportResult] = useState(null)
 
   useEffect(() => {
     if (!open) return
@@ -86,6 +87,7 @@ export default function ImportGitHubModal({ open, onClose, onImported }) {
     setSubfolder('')
     setFolderMeta(null)
     setFolderError('')
+    setImportResult(null)
     fetchStatus().then((s) => {
       setChecking(false)
       if (s?.connected) fetchRepos()
@@ -139,9 +141,22 @@ export default function ImportGitHubModal({ open, onClose, onImported }) {
     )
     if (result.success) {
       onImported?.(result.project)
-      onClose()
-      navigate(`/ide/${result.project.id}`)
+      // If GitHub truncated the tree or some files were skipped, pause on a summary
+      // so the user knows before jumping into the editor.
+      if (result.warning || result.filesSkipped > 0) {
+        setImportResult(result)
+      } else {
+        onClose()
+        navigate(`/ide/${result.project.id}`)
+      }
     }
+  }
+
+  const goToEditor = () => {
+    const project = importResult?.project
+    setImportResult(null)
+    onClose()
+    if (project) navigate(`/ide/${project.id}`)
   }
 
   const renderFolderStep = () => (
@@ -237,12 +252,53 @@ export default function ImportGitHubModal({ open, onClose, onImported }) {
       )
     }
 
+    if (importResult) {
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-stellar-heading font-semibold">
+            <Package className="w-4 h-4 text-stellar-accent" />
+            Imported {importResult.filesImported} file(s)
+          </div>
+          {importResult.warning && (
+            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              {importResult.warning}
+            </div>
+          )}
+          {importResult.filesSkipped > 0 && (
+            <div className="text-xs text-stellar-muted">
+              <p className="mb-1">{importResult.filesSkipped} file(s) were skipped:</p>
+              <div className="max-h-40 overflow-auto space-y-0.5 border border-stellar-border rounded-lg p-2">
+                {importResult.skipped.map((s) => (
+                  <div key={s.path} className="flex items-center justify-between gap-2">
+                    <span className="truncate" title={s.path}>{s.path}</span>
+                    <span className="text-stellar-border flex-shrink-0">
+                      {s.reason === 'too_large' ? 'too large' : s.reason === 'binary' ? 'binary' : 'failed'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <Button className="w-full justify-center" onClick={goToEditor}>
+            Continue to editor
+          </Button>
+        </div>
+      )
+    }
+
     if (!status?.connected) {
       return (
         <div className="space-y-4 text-center py-4">
           <div className="w-12 h-12 rounded-xl bg-stellar-surface border border-stellar-border flex items-center justify-center mx-auto">
             <GitHubIcon className="w-6 h-6 text-stellar-text" />
           </div>
+          {status?.reason && (
+            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 text-left">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              {status.reason}
+            </div>
+          )}
           <p className="text-sm text-stellar-muted">
             Connect your GitHub account to import repositories into StellarIDE.
           </p>
