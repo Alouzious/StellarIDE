@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import api from '../../services/api'
 import { Keypair } from '@stellar/stellar-sdk'
+import { deployContractWithWallet } from '../../lib/sorobanDeploy'
 
 const DEFAULT_LIB_CONTENT = `#![no_std]
 use soroban_sdk::{contract, contractimpl, vec, Env, Symbol, symbol_short, Vec};
@@ -296,12 +297,57 @@ const useIdeStore = create((set, get) => ({
     }
   },
 
-  runDeploy: async (projectId, walletAddress, network, secretKey) => {
+  runDeploy: async (projectId, options = {}) => {
+    const {
+      walletAddress,
+      network = 'testnet',
+      secretKey,
+      useExternalWallet = false,
+      files,
+      signTransaction,
+    } = options
     const { appendLog } = get()
-    set({ deployStatus: 'running' })
+    set({ deployStatus: useExternalWallet ? 'signing' : 'running' })
     appendLog('$ stellar contract deploy', 'info')
     appendLog(`   Network: ${network}`, 'info')
     appendLog(`   Wallet: ${walletAddress?.slice(0, 8)}...`, 'info')
+
+    if (useExternalWallet && signTransaction) {
+      try {
+        const wasmFile = (files || get().files).find(
+          (f) => f.file_path?.endsWith('.wasm') || f.language === 'wasm'
+        )
+        if (!wasmFile?.content) {
+          throw new Error('No WASM artifact found — compile your contract first')
+        }
+
+        const wasmBytes = Uint8Array.from(atob(wasmFile.content), (c) => c.charCodeAt(0))
+        appendLog('   Waiting for wallet signature…', 'info')
+
+        const { contractId } = await deployContractWithWallet({
+          wasmBytes,
+          publicKey: walletAddress,
+          network,
+          signTransaction,
+          onStatus: (msg) => appendLog(`   ${msg}`, 'info'),
+        })
+
+        set({ deployStatus: 'success' })
+        appendLog('✔  Contract deployed via wallet', 'success')
+        appendLog(`   Contract ID: ${contractId}`, 'success')
+        return { success: true, contractId, usedWallet: true }
+      } catch (err) {
+        const msg = err?.message || 'Deploy failed'
+        set({ deployStatus: 'error' })
+        appendLog(`✖  ${msg}`, 'error')
+        return {
+          success: false,
+          error: msg,
+          rejected: msg.toLowerCase().includes('rejected'),
+        }
+      }
+    }
+
     try {
       const { data } = await api.post(`/projects/${projectId}/deploy`, {
         wallet_address: walletAddress,
@@ -310,11 +356,13 @@ const useIdeStore = create((set, get) => ({
       })
       set({ deployStatus: data.success ? 'success' : 'error' })
       appendLog((data.success ? '✔  ' : '✖  ') + data.message, data.success ? 'success' : 'error')
-      ;(data.logs || []).forEach(l => appendLog(l, 'info'))
+      ;(data.logs || []).forEach((l) => appendLog(l, 'info'))
       if (data.contract_id) appendLog(`   Contract ID: ${data.contract_id}`, 'success')
+      return { success: data.success, contractId: data.contract_id }
     } catch (err) {
       set({ deployStatus: 'error' })
       appendLog(`✖  ${err.response?.data?.error || 'Deploy failed.'}`, 'error')
+      return { success: false, error: err.response?.data?.error || 'Deploy failed.' }
     }
   },
 
