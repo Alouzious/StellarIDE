@@ -117,18 +117,50 @@ function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename })
   )
 }
 
-function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning, readOnly }) {
+function OutputPanel({
+  logs, onClear, onFix, onExplain, hasErrors, aiRunning, readOnly,
+  compileStatus, testStatus, deployStatus,
+}) {
   const bottomRef = useRef(null)
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
-  const colors = { info: 'text-stellar-text', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' }
+  const [autoScroll, setAutoScroll] = useState(true)
+
+  const isStreaming =
+    compileStatus === 'running' ||
+    testStatus === 'running' ||
+    deployStatus === 'running' ||
+    deployStatus === 'signing'
+
+  const headerStatus = (() => {
+    if (compileStatus === 'running') return 'Compiling…'
+    if (testStatus === 'running') return 'Testing…'
+    if (deployStatus === 'running' || deployStatus === 'signing') return 'Deploying…'
+    return 'Ready'
+  })()
+
+  useEffect(() => {
+    if (autoScroll) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [logs, autoScroll])
+
+  const colors = {
+    info: 'text-stellar-text',
+    success: 'text-green-400',
+    error: 'text-red-400',
+    warning: 'text-yellow-400',
+    running: 'text-cyan-400',
+  }
+
   return (
     <div className="h-full flex flex-col bg-stellar-bg">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-stellar-border bg-stellar-card flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-stellar-muted" />
-          <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide">Output</span>
+      <div className="flex items-center justify-between px-4 py-2 border-b border-stellar-border bg-stellar-card flex-shrink-0 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Terminal className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
+          <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide truncate">
+            Terminal — {headerStatus}
+          </span>
           {hasErrors && (
-            <div className="flex items-center gap-1.5 ml-2">
+            <div className="flex items-center gap-1.5 ml-1">
               {!readOnly && (
                 <button onClick={onFix} disabled={aiRunning}
                   className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
@@ -144,14 +176,42 @@ function OutputPanel({ logs, onClear, onFix, onExplain, hasErrors, aiRunning, re
             </div>
           )}
         </div>
-        <button onClick={onClear} className="text-stellar-border hover:text-stellar-muted transition-colors">
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setAutoScroll((v) => !v)}
+            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+              autoScroll
+                ? 'border-stellar-accent/40 text-stellar-accent bg-stellar-accent/10'
+                : 'border-stellar-border text-stellar-muted hover:text-white'
+            }`}
+            title={autoScroll ? 'Auto-scroll on' : 'Auto-scroll off'}
+          >
+            Auto-scroll
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-xs px-2 py-0.5 rounded border border-stellar-border text-stellar-muted hover:text-white transition-colors"
+          >
+            Clear
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-6 space-y-0.5">
         {logs.length === 0
           ? <span className="text-stellar-border">Run a command to see output...</span>
-          : logs.map((l) => <div key={l.id} className={colors[l.level] || 'text-stellar-text'}>{l.line}</div>)}
+          : logs.map((l, i) => {
+            const isLast = i === logs.length - 1
+            const showSpinner = isStreaming && isLast && l.level !== 'success' && l.level !== 'error'
+            return (
+              <div key={l.id} className={colors[l.level] || colors.info}>
+                <span className="text-stellar-border mr-2">[{l.timestamp || '--:--:--'}]</span>
+                {showSpinner && <span className="text-cyan-400 mr-1">⟳</span>}
+                {l.line}
+              </div>
+            )
+          })}
         <div ref={bottomRef} />
       </div>
     </div>
@@ -801,7 +861,8 @@ export default function IdePage() {
     compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
     runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainError,
-    applyFileTreeUpdate, debouncedSaveFile, appendLog,
+    applyFileTreeUpdate, debouncedSaveFile, appendLog, appendStreamLine,
+    beginRemoteTerminal, finishRemoteTerminal,
   } = useIdeStore()
   const { isOpen: chatOpen, toggleChat, closeChat, setProjectId: setChatProjectId } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
@@ -875,23 +936,20 @@ export default function IdePage() {
       },
       onPresence: (users) => setPresence(users),
       onStatus: setProjectConnectionStatus,
-      onCompileOutput: (msg) => {
+      onCompileOutput: () => {},
+      onTestOutput: () => {},
+      onTerminalStarted: (msg) => {
         if (msg.user_id === user.id) return
-        appendLog(`[${msg.user_name}] ${msg.command}`, 'info')
-        ;(msg.lines || []).forEach((line) => appendLog(`   ${line}`, msg.success ? 'info' : 'error'))
-        appendLog(
-          (msg.success ? '✔  ' : '✖  ') + `${msg.user_name} finished compile (${msg.status})`,
-          msg.success ? 'success' : 'error'
-        )
+        setBottomPanelOpen(true)
+        beginRemoteTerminal(msg)
       },
-      onTestOutput: (msg) => {
+      onTerminalOutput: (msg) => {
         if (msg.user_id === user.id) return
-        appendLog(`[${msg.user_name}] cargo test`, 'info')
-        ;(msg.lines || []).forEach((line) => appendLog(`   ${line}`, msg.success ? 'info' : 'error'))
-        appendLog(
-          (msg.success ? '✔  ' : '✖  ') + `${msg.user_name} finished tests (${msg.status})`,
-          msg.success ? 'success' : 'error'
-        )
+        appendStreamLine(msg.data)
+      },
+      onTerminalDone: (msg) => {
+        if (msg.user_id === user.id) return
+        finishRemoteTerminal(msg)
       },
       onDeployStarted: (msg) => {
         setDeployLock({ user_id: msg.user_id, user_name: msg.user_name })
@@ -909,7 +967,8 @@ export default function IdePage() {
     }
   }, [
     projectId, token, user?.id, applyFileTreeUpdate, setPresence,
-    setProjectConnectionStatus, appendLog, loadFiles, toast, setDeployLock,
+    setProjectConnectionStatus, appendLog, appendStreamLine, beginRemoteTerminal,
+    finishRemoteTerminal, loadFiles, toast, setDeployLock,
   ])
 
   const startDrag = (e) => {
@@ -1244,6 +1303,9 @@ export default function IdePage() {
                 hasErrors={outputLog.some(l => l.level === 'error')}
                 aiRunning={aiStatus === 'running'}
                 readOnly={readOnly}
+                compileStatus={compileStatus}
+                testStatus={testStatus}
+                deployStatus={deployStatus}
               />
             </div>
           )}
