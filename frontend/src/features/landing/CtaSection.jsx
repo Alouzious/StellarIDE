@@ -26,7 +26,7 @@ export default function CtaSection() {
                   Start Building Free
                 </Button>
               </Link>
-              <Link to="/docs">
+              <Link to="/docs/guide">
                 <Button variant="secondary" size="lg">
                   Read the Docs
                   <ArrowRight className="w-5 h-5" />

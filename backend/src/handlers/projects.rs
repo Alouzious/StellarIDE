@@ -65,7 +65,39 @@ pub async fn create_project(
     .bind(body.description.as_deref())
     .fetch_one(&state.db)
     .await?;
+
+    let template_id = body
+        .template_id
+        .as_deref()
+        .unwrap_or("blank");
+    let template = crate::services::templates::get_template(template_id)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown template: {template_id}")))?;
+    seed_project_files(&state, project.id, &template.files).await?;
+
     Ok(Json(project))
+}
+
+async fn seed_project_files(
+    state: &AppState,
+    project_id: Uuid,
+    files: &[crate::services::templates::TemplateFile],
+) -> Result<()> {
+    for file in files {
+        sqlx::query(
+            r#"INSERT INTO project_files (id, project_id, file_path, content, language, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+               ON CONFLICT (project_id, file_path)
+               DO UPDATE SET content = EXCLUDED.content, language = EXCLUDED.language, updated_at = NOW()"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(project_id)
+        .bind(&file.path)
+        .bind(&file.content)
+        .bind(file.language.as_deref().unwrap_or(if file.path.ends_with(".toml") { "toml" } else { "rust" }))
+        .execute(&state.db)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn get_project(

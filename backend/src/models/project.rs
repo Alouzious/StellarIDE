@@ -21,6 +21,8 @@ pub struct Project {
 pub struct CreateProjectRequest {
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -25,6 +25,17 @@ export default function App() {
         {/* Documentation */}
         <Route path="/docs" element={<DocsLayout />}>
           <Route index element={<DocsContentPage />} />
+          <Route path="guide" element={<DocsContentPage />} />
+          <Route path="guide/create-account" element={<DocsContentPage />} />
+          <Route path="guide/first-contract" element={<DocsContentPage />} />
+          <Route path="guide/using-editor" element={<DocsContentPage />} />
+          <Route path="guide/compile-errors" element={<DocsContentPage />} />
+          <Route path="guide/deploy-testnet" element={<DocsContentPage />} />
+          <Route path="guide/connect-wallet" element={<DocsContentPage />} />
+          <Route path="guide/invite-team" element={<DocsContentPage />} />
+          <Route path="guide/import-github" element={<DocsContentPage />} />
+          <Route path="guide/audit-contract" element={<DocsContentPage />} />
+          <Route path="guide/faq" element={<DocsContentPage />} />
           <Route path="getting-started" element={<DocsContentPage />} />
           <Route path="editor" element={<DocsContentPage />} />
           <Route path="compile-test" element={<DocsContentPage />} />

@@ -16,7 +16,7 @@ export default function Footer() {
     {
       title: 'Developers',
       links: [
-        { label: 'Documentation', href: '/docs' },
+        { label: 'Documentation', href: '/docs/guide' },
         { label: 'API Reference', href: '/docs/api' },
         { label: 'Changelog', href: '#' },
       ],

@@ -13,6 +13,7 @@ import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
 import ImportGitHubModal from '../components/ImportGitHubModal'
 import LinkGitHubModal from '../components/LinkGitHubModal'
+import TemplatePickerModal from '../components/TemplatePickerModal'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -96,6 +97,7 @@ export default function DashboardPage() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [githubOpen, setGithubOpen] = useState(false)
   const [formData, setFormData] = useState({ name: '', description: '', repoUrl: '', branch: 'main' })
+  const [selectedTemplateId, setSelectedTemplateId] = useState('hello-world')
   const [linkAfterCreate, setLinkAfterCreate] = useState(false)
   const [linkModalProject, setLinkModalProject] = useState(null)
   const [formError, setFormError] = useState('')
@@ -117,7 +119,11 @@ export default function DashboardPage() {
   const handleCreate = async () => {
     if (!formData.name.trim()) { setFormError('Project name is required'); return }
     setSubmitting(true)
-    const result = await createProject(formData.name.trim(), formData.description.trim())
+    const result = await createProject(
+      formData.name.trim(),
+      formData.description.trim(),
+      selectedTemplateId
+    )
     if (result.success && linkAfterCreate && formData.repoUrl.trim()) {
       const linkResult = await linkProjectRepo(
         result.project.id,
@@ -202,14 +208,25 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold text-stellar-heading">
               Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
             </h1>
-            <p className="text-sm text-stellar-muted mt-1">Manage your Soroban contract projects</p>
+            <p className="text-sm text-stellar-muted mt-1">
+              Manage your Soroban contract projects.{' '}
+              <Link to="/docs/guide" className="text-stellar-accent hover:underline">
+                New to StellarIDE? Read the guide
+              </Link>
+            </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button variant="secondary" onClick={() => setGithubOpen(true)}>
               <GitHubIcon className="w-4 h-4" />
               Import from GitHub
             </Button>
-            <Button onClick={() => { setFormData({ name: '', description: '', repoUrl: '', branch: 'main' }); setFormError(''); setLinkAfterCreate(false); setCreateOpen(true) }}>
+            <Button onClick={() => {
+              setFormData({ name: '', description: '', repoUrl: '', branch: 'main' })
+              setFormError('')
+              setSelectedTemplateId('hello-world')
+              setLinkAfterCreate(false)
+              setCreateOpen(true)
+            }}>
               <Plus className="w-4 h-4" />
               New Project
             </Button>
@@ -247,7 +264,13 @@ export default function DashboardPage() {
               </p>
             )}
             {!search && (
-              <Button onClick={() => { setFormData({ name: '', description: '', repoUrl: '', branch: 'main' }); setFormError(''); setLinkAfterCreate(false); setCreateOpen(true) }}>
+              <Button onClick={() => {
+                setFormData({ name: '', description: '', repoUrl: '', branch: 'main' })
+                setFormError('')
+                setSelectedTemplateId('hello-world')
+                setLinkAfterCreate(false)
+                setCreateOpen(true)
+              }}>
                 <Plus className="w-4 h-4" />
                 Create Project
               </Button>
@@ -268,60 +291,19 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Create Modal */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Project">
-        <div className="space-y-4">
-          <Input
-            label="Project name"
-            placeholder="my-token-contract"
-            value={formData.name}
-            onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormError('') }}
-            error={formError}
-            autoFocus
-          />
-          <Input
-            label="Description (optional)"
-            placeholder="A brief description of your contract"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          />
-          <label className="flex items-center gap-2 text-sm text-stellar-muted cursor-pointer">
-            <input
-              type="checkbox"
-              checked={linkAfterCreate}
-              onChange={(e) => setLinkAfterCreate(e.target.checked)}
-              className="rounded border-stellar-border"
-            />
-            Link to GitHub repository after create
-          </label>
-          {linkAfterCreate && (
-            <>
-              <Input
-                label="GitHub repo URL"
-                placeholder="https://github.com/owner/repo"
-                value={formData.repoUrl}
-                onChange={(e) => setFormData({ ...formData, repoUrl: e.target.value })}
-              />
-              <Input
-                label="Branch"
-                value={formData.branch}
-                onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-              />
-              <p className="text-xs text-stellar-muted">
-                Use Import from GitHub to pick a contract subfolder. Or open the IDE and use Link Repo to scan folders.
-              </p>
-            </>
-          )}
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1 justify-center" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button className="flex-1 justify-center" loading={submitting} onClick={handleCreate}>
-              Create
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <TemplatePickerModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={handleCreate}
+        loading={submitting}
+        error={formError}
+        name={formData.name}
+        description={formData.description}
+        onNameChange={(value) => { setFormData({ ...formData, name: value }); setFormError('') }}
+        onDescriptionChange={(value) => setFormData({ ...formData, description: value })}
+        selectedTemplateId={selectedTemplateId}
+        onSelectTemplate={setSelectedTemplateId}
+      />
 
       {/* Edit Modal */}
       <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Rename Project">

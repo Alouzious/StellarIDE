@@ -8,7 +8,7 @@ export default function DocsContentPage() {
   const content = CONTENT_BY_PATH[normalized]
 
   if (!content) {
-    return <Navigate to="/docs" replace />
+    return <Navigate to="/docs/guide" replace />
   }
 
   return (

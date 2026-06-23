@@ -77,6 +77,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/projects", get(handlers::projects::list_projects))
         .route("/projects", post(handlers::projects::create_project))
+        .route("/templates", get(handlers::templates::list_templates))
         .route("/projects/:id", get(handlers::projects::get_project))
         .route("/projects/:id", put(handlers::projects::update_project))
         .route("/projects/:id", delete(handlers::projects::delete_project))

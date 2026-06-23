@@ -540,7 +540,7 @@ function DeployPanel({ onClose, projectId }) {
                 >
                   {fundingConnected
                     ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Funding…</>
-                    : <>⚡ Fund via Friendbot — Free</>}
+                    : <>⚡ Fund via Friendbot Free</>}
                 </button>
               )}
             </div>
@@ -649,7 +649,7 @@ function DeployPanel({ onClose, projectId }) {
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs font-semibold transition-all disabled:opacity-50">
                   {funding
                     ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Funding…</>
-                    : <>⚡ Fund via Friendbot — Free</>}
+                    : <>Fund via Friendbot Free</>}
                 </button>
               )}
               {walletFunded && !connectedAddress && (
@@ -851,7 +851,7 @@ function GitHubLinkBar({ onLink, readOnly, isOwner }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stellar-border bg-stellar-card/50 flex-shrink-0">
       <GitHubIcon className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
-      <span className="text-xs text-stellar-muted">Push to GitHub — link a repository</span>
+      <span className="text-xs text-stellar-muted">Push to GitHub link a repository</span>
       <button
         type="button"
         onClick={onLink}
@@ -1255,7 +1255,7 @@ export default function IdePage() {
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <a
-            href="/docs"
+            href="/docs/guide"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all"

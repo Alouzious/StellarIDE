@@ -10,7 +10,7 @@ export default function DocArticle({ title, description, sections, editFile }) {
   return (
     <article className="max-w-3xl">
       <nav className="text-xs text-stellar-muted mb-6 flex flex-wrap items-center gap-1">
-        <Link to="/docs" className="hover:text-white transition-colors">Docs</Link>
+        <Link to="/docs/guide" className="hover:text-white transition-colors">Docs</Link>
         <span>/</span>
         <span className="text-stellar-text">{title}</span>
       </nav>
