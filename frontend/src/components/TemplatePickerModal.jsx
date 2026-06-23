@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Sparkles, FileCode } from 'lucide-react'
+import { Sparkles, FileCode, Check } from 'lucide-react'
 import Modal from './ui/Modal'
 import Input from './ui/Input'
 import Button from './ui/Button'
@@ -39,44 +39,85 @@ export default function TemplatePickerModal({
       .finally(() => setTemplatesLoading(false))
   }, [open])
 
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
+
+  const footer = (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex-1 min-w-0 text-xs text-stellar-muted">
+        {selectedTemplate ? (
+          <span>
+            Selected: <span className="text-stellar-heading font-medium">{selectedTemplate.name}</span>
+          </span>
+        ) : (
+          <span>Pick a template to get started</span>
+        )}
+      </div>
+      <div className="flex gap-3 w-full sm:w-auto">
+        <Button variant="secondary" className="flex-1 sm:flex-none justify-center min-w-[100px]" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          className="flex-1 sm:flex-none justify-center min-w-[140px] shadow-lg shadow-stellar-accent/20"
+          size="lg"
+          loading={loading}
+          onClick={onCreate}
+        >
+          Create Project
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
-    <Modal open={open} onClose={onClose} title="New Project" className="max-w-4xl">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New Project"
+      className="max-w-5xl"
+      bodyClassName="pb-4"
+      footer={footer}
+    >
       <div className="space-y-5">
-        <Input
-          label="Project name"
-          placeholder="my-token-contract"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          error={error}
-          autoFocus
-        />
-        <Input
-          label="Description (optional)"
-          placeholder="A brief description of your contract"
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Input
+            label="Project name"
+            placeholder="my-token-contract"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            error={error}
+            autoFocus
+          />
+          <Input
+            label="Description (optional)"
+            placeholder="A brief description of your contract"
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+          />
+        </div>
 
         <div>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-stellar-heading">Choose a template</p>
+            <div>
+              <p className="text-sm font-semibold text-stellar-heading">Choose a template</p>
+              <p className="text-xs text-stellar-muted mt-0.5">8 starter contracts with real Soroban code</p>
+            </div>
             <button
               type="button"
               onClick={() => onSelectTemplate('blank')}
-              className="text-xs text-stellar-muted hover:text-stellar-accent transition-colors"
+              className="text-xs px-2.5 py-1 rounded-md border border-stellar-border text-stellar-muted hover:text-stellar-accent hover:border-stellar-accent/40 transition-colors"
             >
               Start Blank
             </button>
           </div>
 
           {templatesLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-28 rounded-xl bg-stellar-surface border border-stellar-border animate-pulse" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <div key={i} className="h-32 rounded-xl bg-stellar-surface border border-stellar-border animate-pulse" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[340px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[min(420px,45vh)] overflow-y-auto pr-1">
               {templates.map((template) => {
                 const selected = selectedTemplateId === template.id
                 return (
@@ -84,14 +125,19 @@ export default function TemplatePickerModal({
                     key={template.id}
                     type="button"
                     onClick={() => onSelectTemplate(template.id)}
-                    className={`text-left rounded-xl border p-4 transition-all ${
+                    className={`text-left rounded-xl border p-4 transition-all min-h-[120px] relative ${
                       selected
-                        ? 'border-stellar-accent bg-stellar-accent/10 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]'
-                        : 'border-stellar-border bg-stellar-surface hover:border-stellar-accent/40'
+                        ? 'border-stellar-accent bg-stellar-accent/10 ring-2 ring-stellar-accent/40'
+                        : 'border-stellar-border bg-stellar-surface hover:border-stellar-accent/40 hover:bg-stellar-card'
                     }`}
                   >
-                    <div className="flex items-start gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-lg bg-stellar-card border border-stellar-border flex items-center justify-center flex-shrink-0">
+                    {selected && (
+                      <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-stellar-accent flex items-center justify-center">
+                        <Check className="w-3 h-3 text-white" />
+                      </span>
+                    )}
+                    <div className="flex items-start gap-3 mb-2 pr-6">
+                      <div className="w-9 h-9 rounded-lg bg-stellar-card border border-stellar-border flex items-center justify-center flex-shrink-0">
                         {template.id === 'blank' ? (
                           <FileCode className="w-4 h-4 text-stellar-muted" />
                         ) : (
@@ -100,10 +146,12 @@ export default function TemplatePickerModal({
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-stellar-heading">{template.name}</p>
-                        <p className="text-xs text-stellar-muted leading-relaxed mt-1">{template.description}</p>
+                        <p className="text-xs text-stellar-muted leading-relaxed mt-1 line-clamp-2">
+                          {template.description}
+                        </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex flex-wrap gap-1.5 mt-1">
                       {(template.tags || []).map((tag) => (
                         <span
                           key={tag}
@@ -118,15 +166,6 @@ export default function TemplatePickerModal({
               })}
             </div>
           )}
-        </div>
-
-        <div className="flex gap-3 pt-2">
-          <Button variant="secondary" className="flex-1 justify-center" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button className="flex-1 justify-center" loading={loading} onClick={onCreate}>
-            Create Project
-          </Button>
         </div>
       </div>
     </Modal>

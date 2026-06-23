@@ -16,6 +16,33 @@ export function buildErrorOutput(outputLog) {
     .join('\n')
 }
 
+export function buildExplainChatMessage({ activeFile, editorContent, outputLog }) {
+  const activePath = activeFile?.file_path || 'src/lib.rs'
+  const errors = buildErrorOutput(outputLog)
+  const terminal = buildTerminalOutput(outputLog)
+  const codeSnippet = (editorContent || '').slice(0, 6000)
+
+  if (errors.trim()) {
+    return (
+      `Please explain the errors in my terminal output and help me understand how to fix them.\n\n` +
+      `Active file: \`${activePath}\`\n\n` +
+      `**Errors:**\n\`\`\`\n${errors.slice(-3000)}\n\`\`\`\n\n` +
+      `**Recent terminal output:**\n\`\`\`\n${terminal.slice(-4000)}\n\`\`\`\n\n` +
+      `**Current file (\`${activePath}\`):**\n\`\`\`rust\n${codeSnippet}\n\`\`\``
+    )
+  }
+
+  return (
+    `Please explain my Soroban smart contract. Walk through what the code does, ` +
+    `key Soroban concepts, and anything I should know before deploying.\n\n` +
+    `File: \`${activePath}\`\n\n` +
+    `\`\`\`rust\n${codeSnippet}\n\`\`\`\n\n` +
+    (terminal.trim()
+      ? `**Terminal output:**\n\`\`\`\n${terminal.slice(-2000)}\n\`\`\``
+      : '')
+  )
+}
+
 export function buildAiContext(state, network = 'testnet') {
   const {
     activeFile,

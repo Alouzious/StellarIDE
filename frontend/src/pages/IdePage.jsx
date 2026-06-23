@@ -26,12 +26,12 @@ import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
 import AuditResultsPanel from '../components/AuditResultsPanel'
-import AiExplainPanel from '../components/AiExplainPanel'
 import AiFixPanel from '../components/AiFixPanel'
 import PresenceBar from '../components/PresenceBar'
 import LinkGitHubModal from '../components/LinkGitHubModal'
 import PushModal from '../components/PushModal'
 import api, { getWsBaseUrl } from '../services/api'
+import { buildExplainChatMessage } from '../lib/aiContext'
 import { ToastContainer } from '../components/ui/Toast'
 import useToast from '../hooks/useToast'
 
@@ -120,7 +120,7 @@ function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename })
 }
 
 function OutputPanel({
-  logs, onClear, onFix, onExplain, hasFixContext, aiRunning, readOnly,
+  logs, onClear, onFix, onExplain, hasFixContext, aiBusy, readOnly,
   compileStatus, testStatus, deployStatus, auditStatus,
   showAuditResultsLink, onShowAuditResults,
 }) {
@@ -166,23 +166,18 @@ function OutputPanel({
           </span>
           <div className="flex items-center gap-1.5 ml-1">
             {!readOnly && hasFixContext && (
-              <button onClick={onFix} disabled={aiRunning}
+              <button onClick={onFix} disabled={aiBusy}
                 className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
-                {aiRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                {aiBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
                 Fix with AI
               </button>
             )}
-            <button onClick={onExplain} disabled={aiRunning}
+            <button onClick={onExplain} disabled={aiBusy}
+              title="Explain in AI Chat"
               className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 text-yellow-400 rounded text-xs font-medium transition-all disabled:opacity-50">
               <HelpCircle className="w-3 h-3" />
               Explain
             </button>
-            {hasFixContext && (
-              <a href="/docs/compile-test" target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-stellar-muted hover:text-stellar-accent transition-colors hidden sm:inline">
-                Read the docs
-              </a>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -877,20 +872,22 @@ export default function IdePage() {
   } = useCollabStore()
   const {
     project, files, activeFile, editorContent, outputLog,
-    compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet, aiStatus,
+    compileStatus, testStatus, deployStatus, auditStatus, isSaving, wallet,
     setProject, loadFiles, setActiveFile, setEditorContent, saveFile,
-    runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI, explainContract,
+    runCompile, runTest, runAudit, clearLog, setWalletState, fixWithAI,
     applyAiFix, rejectAiFix, toggleAiFixSelection,
     applyFileTreeUpdate, debouncedSaveFile, appendLog, appendStreamLine,
     beginRemoteTerminal, finishRemoteTerminal, applyRemoteAuditResults,
     auditFindings, auditRiskLevel, auditMessage, auditPanelOpen, auditShowTerminal,
     setAuditPanelOpen, setAuditShowTerminal, jumpToFinding, editorHighlight,
-    aiExplainPanelOpen, aiExplainContent, aiExplainFile, aiExplainStatus, aiExplainError,
     aiFixPanelOpen, aiFixProposal, aiFixStatus, aiFixError,
-    setAiExplainPanelOpen, setAiFixPanelOpen,
+    setAiFixPanelOpen,
   } = useIdeStore()
   const { network } = useWalletStore()
-  const { isOpen: chatOpen, toggleChat, closeChat, setProjectId: setChatProjectId } = useChatStore()
+  const {
+    isOpen: chatOpen, toggleChat, closeChat, openChat, sendMessage,
+    isLoading: chatLoading, setProjectId: setChatProjectId,
+  } = useChatStore()
   const { toasts, toast, removeToast } = useToast()
 
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true)
@@ -1108,12 +1105,13 @@ export default function IdePage() {
     [outputLog, auditFindings, compileStatus]
   )
 
-  const aiRunning = aiStatus === 'running'
+  const aiBusy = aiFixStatus === 'running' || chatLoading
 
   const handleExplain = async () => {
-    setBottomPanelOpen(true)
-    setAiExplainPanelOpen(true)
-    await explainContract(projectId, network)
+    if (deployPanelOpen) setDeployPanelOpen(false)
+    openChat()
+    const message = buildExplainChatMessage({ activeFile, editorContent, outputLog })
+    await sendMessage(message)
   }
 
   const handleFix = async () => {
@@ -1150,7 +1148,7 @@ export default function IdePage() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [projectId, readOnly, network, hasFixContext])
+  }, [projectId, readOnly, hasFixContext, activeFile, editorContent, outputLog, deployPanelOpen])
 
   // Deploy button opens the panel
   const handleDeployToggle = () => {
@@ -1233,21 +1231,6 @@ export default function IdePage() {
             {actionIcon(auditStatus, Shield)}
             <span className="hidden sm:inline">Audit</span>
           </button>
-          <div className="h-4 w-px bg-stellar-border hidden md:block" />
-          <button onClick={handleExplain} disabled={aiRunning}
-            title="Explain contract (Ctrl+Shift+E)"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 hover:border-yellow-500/40 text-yellow-400 rounded-md text-xs font-medium transition-all disabled:opacity-50">
-            {aiExplainStatus === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <HelpCircle className="w-3.5 h-3.5" />}
-            <span className="hidden lg:inline">Explain</span>
-          </button>
-          {!readOnly && (
-            <button onClick={handleFix} disabled={aiRunning || !hasFixContext}
-              title="Fix with AI (Ctrl+Shift+F)"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-stellar-accent/15 border border-stellar-accent/30 hover:border-stellar-accent/50 text-stellar-accent rounded-md text-xs font-medium transition-all disabled:opacity-50">
-              {aiFixStatus === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              <span className="hidden lg:inline">Fix</span>
-            </button>
-          )}
         </div>
 
         {/* Right */}
@@ -1439,15 +1422,6 @@ export default function IdePage() {
                   onToggleTerminal={() => setAuditShowTerminal(true)}
                   showTerminal={false}
                 />
-              ) : aiExplainPanelOpen ? (
-                <AiExplainPanel
-                  filePath={aiExplainFile || activeFile?.file_path}
-                  content={aiExplainContent}
-                  status={aiExplainStatus}
-                  error={aiExplainError}
-                  onClose={() => setAiExplainPanelOpen(false)}
-                  onRetry={() => explainContract(projectId, network)}
-                />
               ) : aiFixPanelOpen ? (
                 <AiFixPanel
                   filePath={activeFile?.file_path}
@@ -1468,7 +1442,7 @@ export default function IdePage() {
                   onFix={handleFix}
                   onExplain={handleExplain}
                   hasFixContext={hasFixContext}
-                  aiRunning={aiRunning}
+                  aiBusy={aiBusy}
                   readOnly={readOnly}
                   compileStatus={compileStatus}
                   testStatus={testStatus}
