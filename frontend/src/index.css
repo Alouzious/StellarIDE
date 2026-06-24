@@ -41,6 +41,10 @@
   background: rgba(239, 68, 68, 0.12) !important;
   border-left: 3px solid #ef4444;
 }
+.search-match-highlight {
+  background: rgba(59, 130, 246, 0.35) !important;
+  border-radius: 2px;
+}
 .audit-highlight-glyph {
   background: #ef4444;
   border-radius: 50%;
@@ -48,3 +52,19 @@
   height: 8px !important;
   margin-left: 4px;
 }
+
+/* Light IDE theme */
+.ide-light {
+  color-scheme: light;
+}
+.ide-light.bg-stellar-bg,
+.ide-light .bg-stellar-bg { background-color: #f6f8fa !important; }
+.ide-light .bg-stellar-card { background-color: #ffffff !important; }
+.ide-light .bg-stellar-surface { background-color: #f0f3f6 !important; }
+.ide-light .border-stellar-border { border-color: #d0d7de !important; }
+.ide-light .text-stellar-text { color: #24292f !important; }
+.ide-light .text-stellar-heading { color: #1f2328 !important; }
+.ide-light .text-stellar-muted { color: #57606a !important; }
+.ide-light .text-stellar-border { color: #8c959f !important; }
+.ide-light ::-webkit-scrollbar-track { background: #f6f8fa; }
+.ide-light ::-webkit-scrollbar-thumb { background: #c9d1d9; }

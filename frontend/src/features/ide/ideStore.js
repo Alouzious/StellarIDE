@@ -98,6 +98,11 @@ const useIdeStore = create((set, get) => ({
   editorHighlight: null,
   isSaving: false,
 
+  openTabs: [],
+  activeTabId: null,
+  savedSnapshots: {},
+  closedTabsStack: [],
+
   aiStatus: 'idle',
   aiExplainPanelOpen: false,
   aiExplainContent: '',
@@ -118,6 +123,127 @@ const useIdeStore = create((set, get) => ({
   wallet: { provider: 'freighter', connected: false, address: null, error: null },
 
   setProject: (project) => set({ project }),
+
+  syncEditorToFiles: () => {
+    const { activeTabId, activeFile, editorContent, files } = get()
+    const path = activeTabId || activeFile?.file_path
+    if (!path) return
+    set({
+      files: files.map((f) =>
+        f.file_path === path ? { ...f, content: editorContent } : f
+      ),
+      activeFile: activeFile?.file_path === path
+        ? { ...activeFile, content: editorContent }
+        : activeFile,
+    })
+  },
+
+  tabMeta: (file) => ({
+    fileId: file.file_path,
+    filename: (file.file_path || 'file').split('/').pop(),
+    path: file.file_path,
+    isDirty: false,
+  }),
+
+  markTabDirty: (fileId) => {
+    if (!fileId) return
+    set((state) => ({
+      openTabs: state.openTabs.map((t) =>
+        t.fileId === fileId ? { ...t, isDirty: true } : t
+      ),
+    }))
+  },
+
+  markTabClean: (fileId) => {
+    if (!fileId) return
+    const path = fileId
+    set((state) => ({
+      openTabs: state.openTabs.map((t) =>
+        t.fileId === fileId ? { ...t, isDirty: false } : t
+      ),
+      savedSnapshots: { ...state.savedSnapshots, [path]: get().editorContent },
+    }))
+  },
+
+  openTab: (file) => {
+    if (!file?.file_path) return
+    const state = get()
+    state.syncEditorToFiles()
+    const fileId = file.file_path
+    const exists = state.openTabs.some((t) => t.fileId === fileId)
+    const openTabs = exists
+      ? state.openTabs
+      : [...state.openTabs, state.tabMeta(file)]
+    const target = state.files.find((f) => f.file_path === fileId) || file
+    set({
+      openTabs,
+      activeTabId: fileId,
+      activeFile: target,
+      editorContent: target.content ?? '',
+      savedSnapshots: state.savedSnapshots[fileId] === undefined
+        ? { ...state.savedSnapshots, [fileId]: target.content ?? '' }
+        : state.savedSnapshots,
+    })
+  },
+
+  setActiveTab: (fileId) => {
+    const state = get()
+    if (!fileId || state.activeTabId === fileId) return
+    state.syncEditorToFiles()
+    const file = state.files.find((f) => f.file_path === fileId)
+    if (!file) return
+    set({
+      activeTabId: fileId,
+      activeFile: file,
+      editorContent: file.content ?? '',
+    })
+  },
+
+  closeTab: (fileId, { force = false } = {}) => {
+    const state = get()
+    const tab = state.openTabs.find((t) => t.fileId === fileId)
+    if (!tab) return { closed: false }
+    if (tab.isDirty && !force) return { closed: false, needsSave: true }
+
+    const remaining = state.openTabs.filter((t) => t.fileId !== fileId)
+    const closedTabsStack = [{ ...tab, file: state.files.find((f) => f.file_path === fileId) }, ...state.closedTabsStack].slice(0, 10)
+
+    if (state.activeTabId === fileId) {
+      const idx = state.openTabs.findIndex((t) => t.fileId === fileId)
+      const next = remaining[Math.max(0, idx - 1)] || remaining[0]
+      set({ openTabs: remaining, closedTabsStack, activeTabId: next?.fileId || null })
+      if (next) {
+        get().setActiveTab(next.fileId)
+      } else {
+        set({ activeFile: null, editorContent: '' })
+      }
+    } else {
+      set({ openTabs: remaining, closedTabsStack })
+    }
+    return { closed: true }
+  },
+
+  closeOtherTabs: (fileId) => {
+    const state = get()
+    const keep = state.openTabs.filter((t) => t.fileId === fileId)
+    set({ openTabs: keep })
+    if (state.activeTabId !== fileId) get().setActiveTab(fileId)
+  },
+
+  closeAllTabs: () => {
+    const dirty = get().openTabs.some((t) => t.isDirty)
+    if (dirty) return { closed: false, needsSave: true }
+    set({ openTabs: [], activeTabId: null, activeFile: null, editorContent: '' })
+    return { closed: true }
+  },
+
+  reopenLastClosedTab: () => {
+    const [last, ...rest] = get().closedTabsStack
+    if (!last?.file) return false
+    set({ closedTabsStack: rest })
+    get().openTab(last.file)
+    return true
+  },
 
   loadFiles: async (projectId) => {
     try {
@@ -151,20 +277,36 @@ const useIdeStore = create((set, get) => ({
       if (files.length > 0) {
         const libFile = files.find(f => f.file_path === 'src/lib.rs' || f.file_path === 'lib.rs')
         const activeFile = libFile || files[0]
-        set({ activeFile, editorContent: activeFile.content })
+        const snapshots = {}
+        files.forEach((f) => { snapshots[f.file_path] = f.content ?? '' })
+        set({ savedSnapshots: snapshots })
+        get().openTab(activeFile)
       }
     } catch {
       // no files yet
     }
   },
 
-  setActiveFile: (file) => set({ activeFile: file, editorContent: file.content }),
+  setActiveFile: (file) => get().openTab(file),
 
   setEditorContent: (content) =>
-    set((state) => ({
-      editorContent: content,
-      activeFile: state.activeFile ? { ...state.activeFile, content } : state.activeFile,
-    })),
+    set((state) => {
+      const path = state.activeTabId || state.activeFile?.file_path
+      const saved = path ? state.savedSnapshots[path] : undefined
+      const isDirty = path ? content !== saved : false
+      return {
+        editorContent: content,
+        activeFile: state.activeFile ? { ...state.activeFile, content } : state.activeFile,
+        files: path
+          ? state.files.map((f) => (f.file_path === path ? { ...f, content } : f))
+          : state.files,
+        openTabs: path
+          ? state.openTabs.map((t) =>
+              t.fileId === path ? { ...t, isDirty } : t
+            )
+          : state.openTabs,
+      }
+    }),
 
   saveFile: async (projectId) => {
     const { activeFile, editorContent } = get()
@@ -186,6 +328,7 @@ const useIdeStore = create((set, get) => ({
           f.file_path === filePath ? { ...f, content: editorContent } : f
         ),
       }))
+      get().markTabClean(filePath)
       return { success: true }
     } catch {
       set({ isSaving: false })
@@ -594,6 +737,7 @@ const useIdeStore = create((set, get) => ({
           : state.activeFile,
         editorContent: state.activeFile?.file_path === filePath ? content : state.editorContent,
       }))
+      get().markTabClean(filePath)
       return { success: true }
     } catch {
       return { success: false }
@@ -707,7 +851,7 @@ const useIdeStore = create((set, get) => ({
     const activePath = get().activeFile?.file_path
     const focusFix = selected.find((f) => f.file_path === activePath) || selected[0]
     const file = get().files.find((f) => f.file_path === focusFix.file_path)
-    if (file) setActiveFile({ ...file, content: focusFix.fixed })
+    if (file) get().openTab({ ...file, content: focusFix.fixed })
 
     set({
       aiFixPanelOpen: false,
@@ -806,11 +950,11 @@ const useIdeStore = create((set, get) => ({
   setAuditShowTerminal: (auditShowTerminal) => set({ auditShowTerminal }),
 
   jumpToFinding: (finding) => {
-    const { files, setActiveFile } = get()
+    const { files, openTab } = get()
     const target = files.find((f) => f.file_path === finding.file)
       || files.find((f) => f.file_path?.endsWith(finding.file?.split('/').pop()))
       || files.find((f) => f.file_path === 'src/lib.rs')
-    if (target) setActiveFile(target)
+    if (target) openTab(target)
     set({
       editorHighlight: {
         file: finding.file,
@@ -820,10 +964,55 @@ const useIdeStore = create((set, get) => ({
     })
   },
 
+  openSearchMatch: (match) => {
+    const { files, openTab } = get()
+    const target = files.find((f) => f.file_path === match.file_path)
+    if (target) openTab(target)
+    set({
+      editorHighlight: {
+        file: match.file_path,
+        lineStart: match.line_number,
+        lineEnd: match.line_number,
+        matchStart: match.match_start,
+        matchEnd: match.match_end,
+      },
+    })
+  },
+
+  replaceInFiles: async (projectId, { query, replace, caseSensitive, wholeWord, useRegex, matches }) => {
+    const { files, saveFileContent, openTab, activeTabId } = get()
+    const byFile = {}
+    matches.forEach((m) => {
+      if (!byFile[m.file_path]) byFile[m.file_path] = []
+      byFile[m.file_path].push(m)
+    })
+
+    for (const [filePath, fileMatches] of Object.entries(byFile)) {
+      const file = files.find((f) => f.file_path === filePath)
+      if (!file) continue
+      let content = file.content
+      const lines = content.split('\n')
+      fileMatches
+        .sort((a, b) => b.line_number - a.line_number || b.match_start - a.match_start)
+        .forEach((m) => {
+          const lineIdx = m.line_number - 1
+          const line = lines[lineIdx]
+          if (!line) return
+          lines[lineIdx] = line.slice(0, m.match_start) + replace + line.slice(m.match_end)
+        })
+      content = lines.join('\n')
+      await saveFileContent(projectId, filePath, content)
+      if (activeTabId === filePath) {
+        openTab({ ...file, content })
+      }
+    }
+    return { success: true }
+  },
+
   clearEditorHighlight: () => set({ editorHighlight: null }),
 
   applyFileTreeUpdate: (msg) => {
-    const { files, activeFile } = get()
+    const { files, activeFile, openTabs, activeTabId } = get()
     const { action, file_path, content, language, old_path } = msg
 
     if (action === 'create' || action === 'update') {
@@ -841,15 +1030,30 @@ const useIdeStore = create((set, get) => ({
           : [...files, entry],
       })
     } else if (action === 'delete') {
+      const remainingTabs = openTabs.filter((t) => t.fileId !== file_path)
       set({ files: files.filter((f) => f.file_path !== file_path) })
-      if (activeFile?.file_path === file_path) {
-        set({ activeFile: null, editorContent: '' })
+      if (!openTabs.some((t) => t.fileId === file_path)) return
+      if (activeTabId === file_path) {
+        const idx = openTabs.findIndex((t) => t.fileId === file_path)
+        const next = remainingTabs[Math.max(0, idx - 1)] || remainingTabs[0]
+        set({ openTabs: remainingTabs, activeTabId: next?.fileId || null })
+        if (next) get().setActiveTab(next.fileId)
+        else set({ activeFile: null, editorContent: '' })
+      } else {
+        set({ openTabs: remainingTabs })
       }
     } else if (action === 'rename' && old_path) {
+      const renamedTabs = openTabs.map((t) =>
+        t.fileId === old_path
+          ? { ...t, fileId: file_path, path: file_path, filename: file_path.split('/').pop() }
+          : t
+      )
       set({
         files: files.map((f) =>
           f.file_path === old_path ? { ...f, file_path } : f
         ),
+        openTabs: renamedTabs,
+        activeTabId: activeTabId === old_path ? file_path : activeTabId,
         activeFile:
           activeFile?.file_path === old_path
             ? { ...activeFile, file_path }

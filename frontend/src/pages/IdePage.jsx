@@ -8,7 +8,7 @@ import {
   MessageSquare, BookOpen, ExternalLink, LogOut, Shield,
   Copy, Eye, EyeOff, RefreshCw, Package, Lock, Sparkles, HelpCircle,
   Globe, Zap, MessageCircle, FlaskConical, Search, Server, Upload, Settings, Link2,
-  AlertCircle,
+  AlertCircle, Cog,
 } from 'lucide-react'
 import GitHubIcon from '../components/icons/GitHubIcon'
 import useIdeStore from '../features/ide/ideStore'
@@ -23,6 +23,10 @@ import { getWalletKit } from '../lib/walletKit'
 import { getExplorerContractUrl, getStellarLabContractUrl } from '../lib/sorobanDeploy'
 import Button from '../components/ui/Button'
 import BottomPanel from '../components/BottomPanel'
+import FileTabBar from '../components/FileTabBar'
+import SettingsPanel from '../components/SettingsPanel'
+import SearchPanel from '../components/SearchPanel'
+import useSettingsStore, { buildMonacoOptions, monacoTheme } from '../features/settings/settingsStore'
 import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
@@ -1030,7 +1034,27 @@ export default function IdePage() {
     setAuditPanelOpen, setAuditShowTerminal, jumpToFinding, editorHighlight,
     aiFixPanelOpen, aiFixProposal, aiFixStatus, aiFixError,
     setAiFixPanelOpen,
+    openTabs, activeTabId, openTab, closeTab, setActiveTab,
+    closeAllTabs, closeOtherTabs, reopenLastClosedTab,
+    openSearchMatch, replaceInFiles,
   } = useIdeStore()
+  const settings = useSettingsStore()
+  const { settingsOpen, setSettingsOpen, theme: appTheme } = settings
+  const monacoOptions = useMemo(
+    () => buildMonacoOptions(settings),
+    [
+      settings.fontSize,
+      settings.fontFamily,
+      settings.tabSize,
+      settings.wordWrap,
+      settings.lineNumbers,
+      settings.minimap,
+      settings.cursorStyle,
+      settings.cursorBlink,
+      settings.fontLigatures,
+    ]
+  )
+  const editorTheme = useMemo(() => monacoTheme(settings), [settings.theme])
   const { network } = useWalletStore()
   const {
     isOpen: chatOpen, toggleChat, closeChat, openChat, sendMessage,
@@ -1048,6 +1072,10 @@ export default function IdePage() {
   const [terminalInstances, setTerminalInstances] = useState([])
   const [activeTerminalId, setActiveTerminalId] = useState(null)
   const [sharedTerminal, setSharedTerminal] = useState(null)
+  const [sidebarMode, setSidebarMode] = useState('explorer')
+  const [tabMenu, setTabMenu] = useState(null)
+  const editorRef = useRef(null)
+  const autoSaveTimerRef = useRef(null)
   const [chatWidth, setChatWidth] = useState(320)
   const [pushModalOpen, setPushModalOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -1333,9 +1361,35 @@ export default function IdePage() {
   }, [projectId, loadFiles, setProject])
 
   const handleSave = async () => {
+    if (settings.formatOnSave && editorRef.current) {
+      await editorRef.current.getAction?.('editor.action.formatDocument')?.run()
+    }
     const r = await saveFile(projectId)
-    if (r.success) toast.success('File saved')
-    else toast.error('Save failed')
+    if (r.success) {
+      if (activeTabId) useIdeStore.getState().markTabClean(activeTabId)
+      toast.success('File saved')
+    } else toast.error('Save failed')
+  }
+
+  const handleCloseTab = (fileId) => {
+    const result = closeTab(fileId)
+    if (result.needsSave) {
+      const save = window.confirm('Save changes before closing?')
+      if (save) {
+        handleSave().then(() => closeTab(fileId, { force: true }))
+      } else if (window.confirm('Discard unsaved changes?')) {
+        closeTab(fileId, { force: true })
+      }
+    }
+  }
+
+  const handleTabContextMenu = (e, tab) => {
+    setTabMenu({ x: e.clientX, y: e.clientY, tab })
+  }
+
+  const handleReplaceAll = async (opts) => {
+    await replaceInFiles(projectId, opts)
+    toast.success('Replace all completed')
   }
 
   const handleCompile = async () => {
@@ -1397,19 +1451,86 @@ export default function IdePage() {
   useEffect(() => {
     if (!projectId || readOnly) return
     const onKeyDown = (e) => {
-      if (!e.ctrlKey || !e.shiftKey) return
-      if (e.key === 'E' || e.key === 'e') {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key === 's') {
+        e.preventDefault()
+        handleSave()
+        return
+      }
+      if (mod && e.key === 'w') {
+        e.preventDefault()
+        if (activeTabId) handleCloseTab(activeTabId)
+        return
+      }
+      if (mod && e.key === 'Tab') {
+        e.preventDefault()
+        if (!openTabs.length) return
+        const idx = openTabs.findIndex((t) => t.fileId === activeTabId)
+        const next = openTabs[(idx + 1) % openTabs.length]
+        if (next) setActiveTab(next.fileId)
+        return
+      }
+      if (mod && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        e.preventDefault()
+        if (reopenLastClosedTab()) toast.success('Tab reopened')
+        return
+      }
+      if (mod && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault()
+        setSidebarMode('search')
+        return
+      }
+      if (mod && e.key === ',') {
+        e.preventDefault()
+        setSettingsOpen(true)
+        return
+      }
+      if (mod && e.key === '`') {
+        e.preventDefault()
+        setBottomPanelOpen((v) => !v)
+        setBottomTab('terminal')
+        return
+      }
+      if (mod && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+        e.preventDefault()
+        handleCompile()
+        return
+      }
+      if (mod && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        handleDeployToggle()
+        return
+      }
+      if (mod && (e.key === 'f' || e.key === 'F') && !e.shiftKey) {
+        editorRef.current?.getAction?.('actions.find')?.run()
+        return
+      }
+      if (e.shiftKey && e.altKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault()
+        editorRef.current?.getAction?.('editor.action.formatDocument')?.run()
+        return
+      }
+      if (mod && e.shiftKey && (e.key === 'E' || e.key === 'e')) {
         e.preventDefault()
         handleExplain()
       }
-      if (e.key === 'F' || e.key === 'f') {
+      if (mod && e.altKey && (e.key === 'F' || e.key === 'f')) {
         e.preventDefault()
         if (hasFixContext) handleFix()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [projectId, readOnly, hasFixContext, activeFile, editorContent, outputLog, deployPanelOpen])
+  }, [projectId, readOnly, activeTabId, openTabs, hasFixContext, deployPanelOpen])
+
+  useEffect(() => {
+    if (!settings.autoSave || readOnly || !projectId || !activeTabId) return
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSave()
+    }, 1000)
+    return () => clearTimeout(autoSaveTimerRef.current)
+  }, [editorContent, settings.autoSave, readOnly, projectId, activeTabId])
 
   // Deploy button opens the panel
   const handleDeployToggle = () => {
@@ -1443,7 +1564,7 @@ export default function IdePage() {
   })()
 
   return (
-    <div className="flex flex-col h-screen bg-stellar-bg overflow-hidden">
+    <div className={`flex flex-col h-screen bg-stellar-bg overflow-hidden ${appTheme === 'light' ? 'ide-light' : ''}`}>
       {/* Top Bar */}
       <header className="flex items-center justify-between px-4 h-12 border-b border-stellar-border bg-stellar-card flex-shrink-0 gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -1506,6 +1627,14 @@ export default function IdePage() {
             Docs
           </a>
           <ResourcesMenu />
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-stellar-surface border border-stellar-border hover:border-stellar-accent/50 text-stellar-muted hover:text-white rounded-md text-xs font-medium transition-all"
+            title="IDE settings (Ctrl+,)"
+          >
+            <Cog className="w-3.5 h-3.5" />
+          </button>
           <button onClick={() => { toggleChat(); if (deployPanelOpen) setDeployPanelOpen(false) }}
             className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-xs font-medium transition-all ${
               chatOpen
@@ -1542,11 +1671,32 @@ export default function IdePage() {
       <div className="flex flex-1 min-h-0">
         {/* File Sidebar */}
         <div className="w-52 border-r border-stellar-border bg-stellar-card flex-shrink-0 hidden md:flex flex-col">
+          {sidebarMode === 'search' ? (
+            <SearchPanel
+              projectId={projectId}
+              onClose={() => setSidebarMode('explorer')}
+              onOpenMatch={(match) => {
+                openSearchMatch(match)
+                setSidebarMode('explorer')
+              }}
+              onReplaceAll={handleReplaceAll}
+            />
+          ) : (
+            <>
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-stellar-border">
             <div className="flex items-center gap-2">
               <FolderOpen className="w-3.5 h-3.5 text-stellar-accent" />
               <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide">Explorer</span>
             </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                title="Search in files (Ctrl+Shift+F)"
+                onClick={() => setSidebarMode('search')}
+                className="text-stellar-muted hover:text-stellar-accent"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </button>
             {!readOnly && (
               <button
                 type="button"
@@ -1567,11 +1717,12 @@ export default function IdePage() {
                 + File
               </button>
             )}
+            </div>
           </div>
           <FileTree
             files={files}
             activeFile={activeFile}
-            onSelect={setActiveFile}
+            onSelect={openTab}
             readOnly={readOnly}
             onDelete={(file) => {
               if (!window.confirm(`Delete ${file.file_path}?`)) return
@@ -1587,6 +1738,8 @@ export default function IdePage() {
               })
             }}
           />
+            </>
+          )}
         </div>
 
         {/* Editor + Output */}
@@ -1605,14 +1758,13 @@ export default function IdePage() {
               isOwner={role === 'owner'}
             />
           )}
-          <div className="flex items-center border-b border-stellar-border bg-stellar-card h-8 flex-shrink-0">
-            {activeFile && (
-              <div className="flex items-center gap-2 px-4 h-full border-r border-stellar-border bg-stellar-surface text-xs font-mono text-stellar-text">
-                <FileCode className="w-3.5 h-3.5 text-stellar-accent" />
-                <span>{(activeFile.file_path || 'src/lib.rs').split('/').pop()}</span>
-              </div>
-            )}
-          </div>
+          <FileTabBar
+            tabs={openTabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTab}
+            onClose={handleCloseTab}
+            onContextMenu={handleTabContextMenu}
+          />
           <div className="flex-1 min-h-0">
             {activeFile?.language === 'wasm' || activeFile?.file_path?.endsWith('.wasm') ? (
               <div className="h-full flex items-center justify-center text-stellar-muted">
@@ -1635,12 +1787,19 @@ export default function IdePage() {
                 language={editorLanguage}
                 readOnly={readOnly}
                 onContentChange={(content) => setEditorContent(content)}
-                onSaveDebounced={(content) =>
-                  debouncedSaveFile(projectId, activeFile.file_path, content)
-                }
+                onSaveDebounced={(content) => {
+                  if (settings.autoSave) {
+                    debouncedSaveFile(projectId, activeFile.file_path, content)
+                    useIdeStore.getState().markTabClean(activeFile.file_path)
+                  }
+                }}
                 onFileConnectionStatus={setFileConnectionStatus}
                 onSessionRestored={handleSessionRestored}
                 editorHighlight={editorHighlight}
+                editorOptions={monacoOptions}
+                theme={editorTheme}
+                autoSaveMs={settings.autoSave ? 1000 : 1500}
+                onEditorReady={(editor) => { editorRef.current = editor }}
               />
             ) : (
               <Editor
@@ -1648,22 +1807,9 @@ export default function IdePage() {
                 language={editorLanguage}
                 value={editorContent}
                 onChange={(val) => setEditorContent(val || '')}
-                theme="vs-dark"
-                options={{
-                  fontSize: 13,
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-                  fontLigatures: true,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  lineNumbers: 'on',
-                  renderLineHighlight: 'line',
-                  automaticLayout: true,
-                  tabSize: 4,
-                  insertSpaces: true,
-                  padding: { top: 16, bottom: 16 },
-                  readOnly,
-                }}
+                theme={editorTheme}
+                onMount={(editor) => { editorRef.current = editor }}
+                options={{ ...monacoOptions, readOnly }}
               />
             )}
           </div>
@@ -1810,6 +1956,41 @@ export default function IdePage() {
           toast.success('Pushed to GitHub')
         }}
       />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {tabMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setTabMenu(null)} />
+          <div
+            className="fixed z-50 min-w-[160px] py-1 rounded-lg border border-stellar-border bg-stellar-card shadow-xl text-xs"
+            style={{ left: tabMenu.x, top: tabMenu.y }}
+          >
+            {[
+              { label: 'Close', action: () => { handleCloseTab(tabMenu.tab.fileId); setTabMenu(null) } },
+              { label: 'Close Others', action: () => { closeOtherTabs(tabMenu.tab.fileId); setTabMenu(null) } },
+              { label: 'Close All', action: () => {
+                const dirty = openTabs.some((t) => t.isDirty)
+                if (dirty && !window.confirm('Some tabs have unsaved changes. Close all anyway?')) return
+                openTabs.forEach((t) => closeTab(t.fileId, { force: true }))
+                setTabMenu(null)
+              }},
+              { label: 'Copy Full Path', action: () => {
+                navigator.clipboard.writeText(tabMenu.tab.path)
+                toast.success('Path copied')
+                setTabMenu(null)
+              }},
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.action}
+                className="w-full text-left px-3 py-1.5 text-stellar-muted hover:bg-stellar-surface hover:text-white"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

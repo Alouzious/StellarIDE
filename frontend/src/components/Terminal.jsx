@@ -5,29 +5,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { getWsBaseUrl } from '../services/api'
-
-const THEME = {
-  background: '#0d1117',
-  foreground: '#e6edf3',
-  cursor: '#58a6ff',
-  cursorAccent: '#0d1117',
-  black: '#484f58',
-  red: '#ff7b72',
-  green: '#3fb950',
-  yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#bc8cff',
-  cyan: '#39c5cf',
-  white: '#b1bac4',
-  brightBlack: '#6e7681',
-  brightRed: '#ffa198',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#d2a8ff',
-  brightCyan: '#56d4dd',
-  brightWhite: '#f0f6fc',
-}
+import useSettingsStore from '../features/settings/settingsStore'
+import { terminalThemeForApp } from '../lib/terminalThemes'
 
 function sendResize(ws, cols, rows) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return
@@ -60,6 +39,7 @@ export default function Terminal({
   const dataDisposableRef = useRef(null)
   const keyDisposableRef = useRef(null)
   const shareRef = useRef(shareEnabled)
+  const settings = useSettingsStore()
 
   useEffect(() => {
     shareRef.current = shareEnabled
@@ -118,13 +98,13 @@ export default function Terminal({
     if (!containerRef.current) return
 
     const term = new XTerm({
-      theme: THEME,
-      fontFamily: 'JetBrains Mono, Fira Code, Cascadia Code, monospace',
-      fontSize: 14,
+      theme: terminalThemeForApp(settings.theme),
+      fontFamily: settings.terminalFontFamily,
+      fontSize: settings.terminalFontSize,
+      scrollback: settings.terminalScrollback,
       lineHeight: 1.5,
       cursorBlink: true,
       cursorStyle: 'block',
-      scrollback: 5000,
       convertEol: true,
       disableStdin: readOnly,
       allowProposedApi: true,
@@ -199,7 +179,7 @@ export default function Terminal({
       fitRef.current = null
       searchRef.current = null
     }
-  }, [connect, readOnly, reconnectKey])
+  }, [connect, readOnly, reconnectKey, settings.theme, settings.terminalFontSize, settings.terminalFontFamily, settings.terminalScrollback])
 
   useEffect(() => {
     if (projectName && termRef.current) {

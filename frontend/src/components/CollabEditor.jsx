@@ -19,6 +19,10 @@ export default function CollabEditor({
   onFileConnectionStatus,
   onSessionRestored,
   editorHighlight,
+  editorOptions = {},
+  theme = 'vs-dark',
+  onEditorReady,
+  autoSaveMs = 1500,
 }) {
   const sessionRef = useRef(null)
   const bindingRef = useRef(null)
@@ -71,7 +75,7 @@ export default function CollabEditor({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(() => {
         onSaveDebounced?.(content)
-      }, 1500)
+      }, autoSaveMs)
     }
     session.ytext.observe(textObserver)
 
@@ -83,7 +87,13 @@ export default function CollabEditor({
       bindingRef.current = null
       sessionRef.current = null
     }
-  }, [projectId, filePath, token, userId, readOnly])
+  }, [projectId, filePath, token, userId, readOnly, autoSaveMs])
+
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.updateOptions(editorOptions)
+    }
+  }, [editorOptions])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -102,20 +112,27 @@ export default function CollabEditor({
     }
     const start = editorHighlight.lineStart || 1
     const end = editorHighlight.lineEnd || start
-    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [{
+    const decos = [{
       range: new monaco.Range(start, 1, end, 1),
       options: {
-        isWholeLine: true,
+        isWholeLine: !editorHighlight.matchStart,
         className: 'audit-highlight-line',
         glyphMarginClassName: 'audit-highlight-glyph',
       },
-    }])
+    }]
+    if (editorHighlight.matchStart != null && editorHighlight.matchEnd != null) {
+      decos.push({
+        range: new monaco.Range(start, editorHighlight.matchStart + 1, start, editorHighlight.matchEnd + 1),
+        options: { inlineClassName: 'search-match-highlight' },
+      })
+    }
+    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, decos)
     editor.revealLineInCenter(start)
   }, [editorHighlight, filePath])
 
   const attachBinding = (editor, session, isReadOnly) => {
     bindingRef.current?.destroy()
-    editor.updateOptions({ readOnly: isReadOnly })
+    editor.updateOptions({ readOnly: isReadOnly, ...editorOptions })
     bindingRef.current = new MonacoBinding(
       session.ytext,
       editor.getModel(),
@@ -127,6 +144,7 @@ export default function CollabEditor({
   const handleMount = (editor, monaco) => {
     editorRef.current = editor
     monacoRef.current = monaco
+    onEditorReady?.(editor, monaco)
     if (sessionRef.current) {
       attachBinding(editor, sessionRef.current, readOnly)
     }
@@ -139,21 +157,10 @@ export default function CollabEditor({
         language={language}
         defaultValue=""
         onMount={handleMount}
-        theme="vs-dark"
+        theme={theme}
         options={{
-          fontSize: 13,
-          fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-          fontLigatures: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          wordWrap: 'on',
-          lineNumbers: 'on',
-          renderLineHighlight: 'line',
-          automaticLayout: true,
-          tabSize: 4,
-          insertSpaces: true,
-          padding: { top: 16, bottom: 16 },
-          readOnly: readOnly,
+          ...editorOptions,
+          readOnly,
           glyphMargin: true,
         }}
       />

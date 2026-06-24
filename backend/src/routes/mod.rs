@@ -88,6 +88,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/projects/:id/files", get(handlers::projects::list_files))
         .route("/projects/:id/files", post(handlers::projects::save_file))
         .route(
+            "/projects/:id/search",
+            get(handlers::search::search_project),
+        )
+        .route(
             "/projects/:id/compile",
             post(handlers::projects::compile_project),
         )

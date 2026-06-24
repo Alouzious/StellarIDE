@@ -182,6 +182,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "portable-pty",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
