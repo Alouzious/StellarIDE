@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import {
@@ -22,6 +22,7 @@ import { ProjectCollabProvider } from '../features/collab/collabProvider'
 import { getWalletKit } from '../lib/walletKit'
 import { getExplorerContractUrl, getStellarLabContractUrl } from '../lib/sorobanDeploy'
 import Button from '../components/ui/Button'
+import BottomPanel from '../components/BottomPanel'
 import ChatPanel from '../components/ui/ChatPanel'
 import NestedFileTree from '../components/NestedFileTree'
 import CollabEditor from '../components/CollabEditor'
@@ -123,119 +124,6 @@ function FileTree({ files, activeFile, onSelect, readOnly, onDelete, onRename })
       onDelete={onDelete}
       onRename={onRename}
     />
-  )
-}
-
-function OutputPanel({
-  logs, onClear, onFix, onExplain, hasFixContext, aiBusy, readOnly,
-  compileStatus, testStatus, deployStatus, auditStatus,
-  showAuditResultsLink, onShowAuditResults,
-}) {
-  const bottomRef = useRef(null)
-  const [autoScroll, setAutoScroll] = useState(true)
-
-  const isStreaming =
-    compileStatus === 'running' ||
-    testStatus === 'running' ||
-    deployStatus === 'running' ||
-    deployStatus === 'signing' ||
-    auditStatus === 'running'
-
-  const headerStatus = (() => {
-    if (compileStatus === 'running') return 'Compiling…'
-    if (testStatus === 'running') return 'Testing…'
-    if (deployStatus === 'running' || deployStatus === 'signing') return 'Deploying…'
-    if (auditStatus === 'running') return 'Auditing…'
-    return 'Ready'
-  })()
-
-  useEffect(() => {
-    if (autoScroll) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [logs, autoScroll])
-
-  const colors = {
-    info: 'text-stellar-text',
-    success: 'text-green-400',
-    error: 'text-red-400',
-    warning: 'text-yellow-400',
-    running: 'text-cyan-400',
-  }
-
-  return (
-    <div className="h-full flex flex-col bg-stellar-bg">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-stellar-border bg-stellar-card flex-shrink-0 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Terminal className="w-3.5 h-3.5 text-stellar-muted flex-shrink-0" />
-          <span className="text-xs font-semibold text-stellar-muted uppercase tracking-wide truncate">
-            Terminal · {headerStatus}
-          </span>
-          <div className="flex items-center gap-1.5 ml-1">
-            {!readOnly && hasFixContext && (
-              <button onClick={onFix} disabled={aiBusy}
-                className="flex items-center gap-1 px-2 py-0.5 bg-stellar-accent/15 hover:bg-stellar-accent/25 border border-stellar-accent/30 text-stellar-accent rounded text-xs font-medium transition-all disabled:opacity-50">
-                {aiBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                Fix with AI
-              </button>
-            )}
-            <button onClick={onExplain} disabled={aiBusy}
-              title="Explain in AI Chat"
-              className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 text-yellow-400 rounded text-xs font-medium transition-all disabled:opacity-50">
-              <HelpCircle className="w-3 h-3" />
-              Explain
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {showAuditResultsLink && (
-            <button
-              type="button"
-              onClick={onShowAuditResults}
-              className="text-xs px-2 py-0.5 rounded border border-stellar-border text-stellar-accent hover:bg-stellar-accent/10 transition-colors inline-flex items-center gap-1"
-            >
-              <Shield className="w-3 h-3" />
-              Audit Results
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setAutoScroll((v) => !v)}
-            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-              autoScroll
-                ? 'border-stellar-accent/40 text-stellar-accent bg-stellar-accent/10'
-                : 'border-stellar-border text-stellar-muted hover:text-white'
-            }`}
-            title={autoScroll ? 'Auto-scroll on' : 'Auto-scroll off'}
-          >
-            Auto-scroll
-          </button>
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-xs px-2 py-0.5 rounded border border-stellar-border text-stellar-muted hover:text-white transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-6 space-y-0.5">
-        {logs.length === 0
-          ? <span className="text-stellar-border">Run a command to see output...</span>
-          : logs.map((l, i) => {
-            const isLast = i === logs.length - 1
-            const showSpinner = isStreaming && isLast && l.level !== 'success' && l.level !== 'error'
-            return (
-              <div key={l.id} className={colors[l.level] || colors.info}>
-                <span className="text-stellar-border mr-2">[{l.timestamp || '--:--:--'}]</span>
-                {showSpinner && <span className="text-cyan-400 mr-1">⟳</span>}
-                {l.line}
-              </div>
-            )
-          })}
-        <div ref={bottomRef} />
-      </div>
-    </div>
   )
 }
 
@@ -1151,8 +1039,15 @@ export default function IdePage() {
   const { toasts, toast, removeToast } = useToast()
 
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true)
+  const [bottomTab, setBottomTab] = useState('output')
   const [deployPanelOpen, setDeployPanelOpen] = useState(false)
-  const [terminalHeight, setTerminalHeight] = useState(176)
+  const [terminalHeight, setTerminalHeight] = useState(320)
+  const [savedTerminalHeight, setSavedTerminalHeight] = useState(320)
+  const [panelMaximized, setPanelMaximized] = useState(false)
+  const [terminalPopOut, setTerminalPopOut] = useState(false)
+  const [terminalInstances, setTerminalInstances] = useState([])
+  const [activeTerminalId, setActiveTerminalId] = useState(null)
+  const [sharedTerminal, setSharedTerminal] = useState(null)
   const [chatWidth, setChatWidth] = useState(320)
   const [pushModalOpen, setPushModalOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -1171,6 +1066,98 @@ export default function IdePage() {
   }, [fileConnectionStatus, projectConnectionStatus])
   const userName = user?.email?.split('@')[0] || 'user'
   const userColorHex = useMemo(() => userColor(user?.id || ''), [user?.id])
+
+  const createTerminalInstance = useCallback(() => {
+    const id = crypto.randomUUID()
+    const sessionId = crypto.randomUUID()
+    const inst = {
+      id,
+      sessionId,
+      title: `bash ${terminalInstances.length + 1}`,
+      shareEnabled: false,
+      status: 'idle',
+      reconnectKey: 0,
+    }
+    setTerminalInstances((prev) => [...prev, inst])
+    setActiveTerminalId(id)
+    return inst
+  }, [terminalInstances.length])
+
+  useEffect(() => {
+    if (bottomTab === 'terminal' && terminalInstances.length === 0 && !readOnly) {
+      createTerminalInstance()
+    }
+  }, [bottomTab, terminalInstances.length, readOnly, createTerminalInstance])
+
+  const handleNewTerminal = () => {
+    if (terminalInstances.length >= 5) {
+      toast.error('Maximum 5 terminal sessions per project')
+      return
+    }
+    createTerminalInstance()
+  }
+
+  const handleCloseTerminal = (id) => {
+    setTerminalInstances((prev) => {
+      const next = prev.filter((t) => t.id !== id)
+      if (activeTerminalId === id) {
+        setActiveTerminalId(next[0]?.id || null)
+      }
+      return next
+    })
+  }
+
+  const handleShareTerminal = (id, enabled) => {
+    setTerminalInstances((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, shareEnabled: enabled } : t))
+    )
+  }
+
+  const handleTerminalStatus = (id, status) => {
+    setTerminalInstances((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status } : t))
+    )
+  }
+
+  const handleToggleMaximize = () => {
+    if (panelMaximized) {
+      setTerminalHeight(savedTerminalHeight)
+      setPanelMaximized(false)
+    } else {
+      setSavedTerminalHeight(terminalHeight)
+      setTerminalHeight(Math.min(window.innerHeight * 0.65, 640))
+      setPanelMaximized(true)
+    }
+  }
+
+  const problems = useMemo(() => {
+    const items = []
+    outputLog.forEach((l, i) => {
+      if (l.level === 'error') {
+        items.push({
+          id: `log-${l.id || i}`,
+          severity: 'error',
+          title: l.line?.slice(0, 120) || 'Error',
+          detail: l.line,
+          onClick: () => setBottomTab('output'),
+        })
+      }
+    })
+    auditFindings.forEach((f, i) => {
+      items.push({
+        id: `audit-${i}`,
+        severity: f.severity === 'Critical' || f.severity === 'High' ? 'error' : 'warning',
+        title: `${f.severity}: ${f.title || f.code || 'Finding'}`,
+        detail: f.description,
+        onClick: () => {
+          setAuditPanelOpen(true)
+          setAuditShowTerminal(false)
+          jumpToFinding(f)
+        },
+      })
+    })
+    return items
+  }, [outputLog, auditFindings, jumpToFinding, setAuditPanelOpen, setAuditShowTerminal])
 
   useEffect(() => {
     if (projectId) fetchRole(projectId)
@@ -1211,9 +1198,12 @@ export default function IdePage() {
     handleSessionRestored,
     userId: user?.id,
     setBottomPanelOpen,
+    setBottomTab,
     applyRemoteAuditResults,
     setAuditPanelOpen,
     setAuditShowTerminal,
+    setSharedTerminal,
+    userId: user?.id,
   }
 
   const sendFileTreeUpdate = (payload, optimistic = true) => {
@@ -1248,6 +1238,17 @@ export default function IdePage() {
       },
       onTerminalOutput: (msg) => {
         if (msg.user_id === collabCallbacksRef.current.userId) return
+        if (msg.operation === 'shell') {
+          collabCallbacksRef.current.setSharedTerminal?.((prev) => ({
+            active: true,
+            userName: msg.user_name,
+            userId: msg.user_id,
+            chunks: [...(prev?.userId === msg.user_id ? prev.chunks : []), msg.data].slice(-200),
+          }))
+          collabCallbacksRef.current.setBottomPanelOpen(true)
+          collabCallbacksRef.current.setBottomTab?.('terminal')
+          return
+        }
         collabCallbacksRef.current.appendStreamLine(msg.data)
       },
       onTerminalDone: (msg) => {
@@ -1696,31 +1697,73 @@ export default function IdePage() {
                   onToggleFix={toggleAiFixSelection}
                 />
               ) : (
-                <OutputPanel
-                  logs={outputLog}
-                  onClear={clearLog}
-                  onFix={handleFix}
-                  onExplain={handleExplain}
-                  hasFixContext={hasFixContext}
-                  aiBusy={aiBusy}
+                <BottomPanel
+                  activeTab={bottomTab}
+                  onTabChange={setBottomTab}
                   readOnly={readOnly}
-                  compileStatus={compileStatus}
-                  testStatus={testStatus}
-                  deployStatus={deployStatus}
-                  auditStatus={auditStatus}
-                  showAuditResultsLink={auditPanelOpen && auditShowTerminal}
-                  onShowAuditResults={() => setAuditShowTerminal(false)}
+                  projectId={projectId}
+                  projectName={project?.name}
+                  token={token}
+                  terminalInstances={terminalInstances}
+                  activeTerminalId={activeTerminalId}
+                  onSelectTerminal={setActiveTerminalId}
+                  onNewTerminal={handleNewTerminal}
+                  onCloseTerminal={handleCloseTerminal}
+                  onShareTerminal={handleShareTerminal}
+                  onTerminalStatus={handleTerminalStatus}
+                  terminalPopOut={terminalPopOut}
+                  onTogglePopOut={() => setTerminalPopOut((v) => !v)}
+                  panelMaximized={panelMaximized}
+                  onToggleMaximize={handleToggleMaximize}
+                  sharedTerminal={
+                    sharedTerminal?.active && sharedTerminal.userId !== user?.id
+                      ? sharedTerminal
+                      : null
+                  }
+                  onDismissShared={() => setSharedTerminal(null)}
+                  problems={problems}
+                  outputProps={{
+                    logs: outputLog,
+                    onClear: clearLog,
+                    onFix: handleFix,
+                    onExplain: handleExplain,
+                    hasFixContext,
+                    aiBusy,
+                    readOnly,
+                    compileStatus,
+                    testStatus,
+                    deployStatus,
+                    auditStatus,
+                    showAuditResultsLink: auditPanelOpen && auditShowTerminal,
+                    onShowAuditResults: () => setAuditShowTerminal(false),
+                  }}
                 />
               )}
             </div>
           )}
           <div className="flex items-center border-t border-stellar-border bg-stellar-card flex-shrink-0 select-none">
+            <div className="flex items-center gap-1 px-2 border-r border-stellar-border h-5">
+              {['output', 'terminal', 'problems'].map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => { setBottomTab(tab); setBottomPanelOpen(true) }}
+                  className={`px-2 py-0.5 text-[10px] rounded capitalize transition-colors ${
+                    bottomTab === tab && bottomPanelOpen
+                      ? 'bg-stellar-accent/15 text-stellar-accent'
+                      : 'text-stellar-muted hover:text-white'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
             <div
               className="flex flex-1 items-center justify-center h-5 cursor-pointer hover:bg-stellar-surface transition-colors"
               onClick={() => setBottomPanelOpen(!bottomPanelOpen)}>
               <div className="flex items-center gap-2 text-stellar-border hover:text-stellar-muted transition-colors">
                 <Terminal className="w-3 h-3" />
-                <span className="text-xs">Terminal</span>
+                <span className="text-xs">Panel</span>
                 {bottomPanelOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </div>
             </div>

@@ -77,6 +77,10 @@ impl TerminalState {
             }
         }
     }
+
+    pub async fn kill_existing_session(&self, key: &SessionKey) {
+        self.remove(key).await;
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -213,10 +217,14 @@ fn build_shell_command(config: &Config, workspace: &Path) -> CommandBuilder {
         cmd.arg("run");
         cmd.arg("-i");
         cmd.arg("--rm");
-        cmd.arg("-v").arg(mount);
-        cmd.arg("-w").arg("/workspace");
-        cmd.arg("-e").arg("TERM=xterm-256color");
-        cmd.arg("-e").arg("HOME=/workspace");
+        cmd.arg("-v");
+        cmd.arg(mount);
+        cmd.arg("-w");
+        cmd.arg("/workspace");
+        cmd.arg("-e");
+        cmd.arg("TERM=xterm-256color");
+        cmd.arg("-e");
+        cmd.arg("HOME=/workspace");
         cmd.arg(&config.soroban_docker_image);
         cmd.arg("bash");
         cmd.arg("--login");
@@ -392,7 +400,7 @@ pub async fn run_session(
                     }
                     Some(axum::extract::ws::Message::Close(_)) | None => break,
                     Some(axum::extract::ws::Message::Ping(p)) => {
-                        let _ = ws_tx.send(axum::extract::ws::Message::Pong(p)).await;
+                        let _ = ws_tx.send(axum::extract::ws::Message::Pong(p));
                     }
                     _ => {}
                 }

@@ -59,11 +59,7 @@ pub async fn terminal_ws_handler(
         session_id: session_id.clone(),
     };
 
-    if let Some(existing) = state.terminal.sessions.get(&session_key) {
-        if let Some(tx) = existing.kill_tx.lock().await.take() {
-            let _ = tx.send(());
-        }
-    }
+    state.terminal.kill_existing_session(&session_key).await;
 
     Ok(ws.on_upgrade(move |socket| {
         handle_terminal_socket(
