@@ -18,7 +18,7 @@ export default function OAuthCallbackPage() {
   const [error, setError] = useState(() => getInitialError(searchParams))
 
   useEffect(() => {
-    // If there was an initial error, do nothing — already shown
+    // If there was an initial error, do nothing already shown
     if (error) return
 
     const token = searchParams.get('token')

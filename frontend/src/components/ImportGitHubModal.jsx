@@ -40,7 +40,7 @@ function FolderOption({ folder, selected, onSelect }) {
         <p className="text-sm font-medium text-stellar-heading">{name}</p>
         <p className="text-xs text-stellar-muted">
           {isRoot && 'Cargo.toml at repo root'}
-          {!isRoot && hasCargo && 'Contains Cargo.toml — likely Soroban contract'}
+          {!isRoot && hasCargo && 'Contains Cargo.toml likely Soroban contract'}
           {!isRoot && !hasCargo && 'Subfolder'}
           {suggested && !isRoot && ' · suggested'}
         </p>
@@ -223,7 +223,7 @@ export default function ImportGitHubModal({ open, onClose, onImported }) {
         </p>
       )}
       {folderError && (
-        <p className="text-xs text-amber-400">{folderError} — you can still import manually.</p>
+        <p className="text-xs text-amber-400">{folderError} you can still import manually.</p>
       )}
       <Input
         label="Project name"

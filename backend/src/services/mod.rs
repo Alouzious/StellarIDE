@@ -5,3 +5,4 @@ pub mod verification;
 pub mod oauth_github;
 pub mod github;
 pub mod collab;
+pub mod terminal;

@@ -11,7 +11,7 @@ export default function NotFoundPage() {
       <p className="text-8xl font-black text-stellar-border mb-4">404</p>
       <h1 className="text-3xl font-bold text-stellar-heading mb-3">Page not found</h1>
       <p className="text-stellar-muted mb-8 max-w-sm">
-        This page doesn&apos;t exist — maybe you wandered off the Stellar network.
+        This page doesn&apos;t exist maybe you wandered off the Stellar network.
       </p>
       <div className="flex gap-3">
         <Link to="/">

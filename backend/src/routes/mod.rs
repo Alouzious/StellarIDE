@@ -155,6 +155,10 @@ pub fn build_router(state: AppState) -> Router {
             "/collab/:project_id/project",
             get(handlers::collab::project_collab_ws_handler),
         )
+        .route(
+            "/api/v1/terminal/:project_id",
+            get(handlers::terminal::terminal_ws_handler),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)

@@ -45,8 +45,8 @@ export default function ShareModal({ open, onClose, projectId }) {
             onChange={(e) => setRole(e.target.value)}
             className="input-field w-full"
           >
-            <option value="editor">Editor — can edit and push</option>
-            <option value="viewer">Viewer — read-only</option>
+            <option value="editor">Editor can edit and push</option>
+            <option value="viewer">Viewer read-only</option>
           </select>
         </div>
 

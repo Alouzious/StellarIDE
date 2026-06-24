@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use services::collab::CollabState;
+use services::terminal::TerminalState;
 
 pub type AppState = Arc<AppStateInner>;
 
@@ -18,6 +19,7 @@ pub struct AppStateInner {
     pub db: sqlx::PgPool,
     pub config: config::Config,
     pub collab: CollabState,
+    pub terminal: TerminalState,
 }
 
 #[tokio::main]
@@ -42,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
         db: pool,
         config: cfg.clone(),
         collab: CollabState::new(),
+        terminal: TerminalState::new(),
     });
     let app = routes::build_router(state);
 

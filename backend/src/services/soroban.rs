@@ -797,7 +797,7 @@ pub(crate) async fn write_workspace(
         }
         fs::write(
             root.join("Cargo.toml"),
-            default_cargo_toml(soroban_sdk_version),
+            default_cargo_toml_content(soroban_sdk_version),
         )
         .await?;
     }
@@ -810,7 +810,7 @@ pub(crate) async fn write_workspace(
     Ok(root)
 }
 
-fn sanitize_relative_path(path: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn sanitize_relative_path(path: &str) -> anyhow::Result<PathBuf> {
     let candidate = Path::new(path);
     if candidate.is_absolute() {
         return Err(anyhow!("absolute paths are not allowed"));
@@ -829,7 +829,7 @@ fn sanitize_relative_path(path: &str) -> anyhow::Result<PathBuf> {
     Ok(clean)
 }
 
-fn default_cargo_toml(soroban_sdk_version: &str) -> String {
+pub(crate) fn default_cargo_toml_content(soroban_sdk_version: &str) -> String {
     format!(
         r#"[package]
 name = "stellaride_contract"
@@ -848,7 +848,7 @@ soroban-sdk = {{ version = "{soroban_sdk_version}", features = ["testutils"] }}
     )
 }
 
-fn default_contract_content() -> &'static str {
+pub(crate) fn default_contract_content() -> &'static str {
     r#"#![no_std]
 use soroban_sdk::{contract, contractimpl, vec, Env, Symbol, symbol_short, Vec};
 
